@@ -167,12 +167,12 @@ def extract_receipt(path: Path, client: anthropic.Anthropic | None = None) -> Re
             data = block.input
             if isinstance(data, str):
                 data = json.loads(data)
-            return _build_receipt(path, data)
+            return build_receipt(path, data)
 
     raise RuntimeError(f"{path.name}: レシートを読み取れませんでした")
 
 
-def _build_receipt(path: Path, data: dict) -> Receipt:
+def build_receipt(path: Path, data: dict) -> Receipt:
     lines = [
         ReceiptLine(
             name=item.get("name", ""),
