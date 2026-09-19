@@ -70,3 +70,27 @@ def test_year_filter_keeps_undated_receipts(tmp_path: Path):
 
     shops = {r.shop for r in ledger.receipts(year=2026)}
     assert shops == {"今年", "不明"}  # 日付不明は取りこぼさず人間に見せる
+
+
+def test_remove_returns_what_it_deleted(tmp_path: Path):
+    ledger = Ledger(tmp_path / "l.json")
+    ledger.add("k1", make_receipt(shop="JR東海"))
+    removed = ledger.remove("k1")
+    assert removed is not None and removed.shop == "JR東海"
+    assert len(ledger) == 0
+
+
+def test_remove_missing_key_is_harmless(tmp_path: Path):
+    ledger = Ledger(tmp_path / "l.json")
+    assert ledger.remove("ない") is None
+
+
+def test_find_matches_how_people_actually_refer_to_a_receipt(tmp_path: Path):
+    ledger = Ledger(tmp_path / "l.json")
+    ledger.add("k1", make_receipt(day=19, shop="JR東海 EX予約 豊橋→品川"))
+    ledger.add("k2", make_receipt(day=3, shop="ヨドバシカメラ"))
+
+    assert [r.shop for _, r in ledger.find("JR")] == ["JR東海 EX予約 豊橋→品川"]
+    assert [r.shop for _, r in ledger.find("2026-03-19")] == ["JR東海 EX予約 豊橋→品川"]
+    assert len(ledger.find("918")) == 2  # 金額が同じなら両方あたる
+    assert ledger.find("存在しない") == []

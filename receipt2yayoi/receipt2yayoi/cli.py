@@ -6,6 +6,7 @@
   receipt2yayoi add 写真フォルダ/ --person 祐子   # まとめて追加
   receipt2yayoi build --person 英之 --year 2026  # CSVだけ作り直す
   receipt2yayoi list --person 祐子               # 台帳の中身を見る
+  receipt2yayoi remove --person 英之 --match 9300 # 入れ間違いを取り消す
 
 英之と祐子は申告が別。--person は必須で、既定値も推測もない。
 """
@@ -125,6 +126,41 @@ def cmd_record(args: argparse.Namespace) -> int:
     return _build(ledger, args)
 
 
+def cmd_remove(args: argparse.Namespace) -> int:
+    """台帳から取り消す。重複や入れ間違いを直すための出口。"""
+    ledger = Ledger(args.ledger)
+
+    if args.file:
+        hits = [(image_id(args.file), None)] if args.file.exists() else []
+        hits = [(k, ledger.remove(k)) for k, _ in hits]
+        hits = [(k, r) for k, r in hits if r is not None]
+        if not hits:
+            print(f"{args.file.name} は{args.person.name}の台帳にありません。", file=sys.stderr)
+            return 1
+    else:
+        found = ledger.find(args.match)
+        if not found:
+            print(f"「{args.match}」に当てはまるレシートが見つかりません。", file=sys.stderr)
+            return 1
+        if len(found) > 1 and not args.all:
+            print(f"「{args.match}」に{len(found)}件あてはまります。絞り込むか --all を付けてください:", file=sys.stderr)
+            for _, r in found:
+                date_str = r.issue_date.strftime("%Y/%m/%d") if r.issue_date else "日付不明"
+                print(f"  {date_str}  {int(r.total):,}円  {r.shop}", file=sys.stderr)
+            return 1
+        hits = [(k, ledger.remove(k)) for k, _ in found]
+
+    ledger.save()
+    for _, r in hits:
+        date_str = r.issue_date.strftime("%Y/%m/%d") if r.issue_date else "日付不明"
+        print(f"  取り消し: {date_str} {r.shop} {int(r.total):,}円")
+    print(f"{args.person.name}の台帳は合計 {len(ledger)}枚。")
+
+    # 台帳が空でもCSVは必ず書き直す。古いCSVを残すと、取り消したはずの
+    # 経費がそのまま申告に載る。
+    return _build(ledger, args, allow_empty=True)
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
     if not len(ledger):
@@ -133,9 +169,9 @@ def cmd_build(args: argparse.Namespace) -> int:
     return _build(ledger, args)
 
 
-def _build(ledger: Ledger, args: argparse.Namespace) -> int:
+def _build(ledger: Ledger, args: argparse.Namespace, allow_empty: bool = False) -> int:
     receipts = ledger.receipts(year=args.year)
-    if not receipts:
+    if not receipts and not allow_empty:
         print(f"{args.person.name}の{args.year}年のレシートが台帳にありません。", file=sys.stderr)
         return 1
 
@@ -186,13 +222,24 @@ def main(argv: list[str] | None = None) -> int:
     p_record = sub.add_parser(
         "record", help="読み取り済みの内容をJSONで台帳に記録する（チャット添付用）"
     )
-    p_record.add_argument("--image", type=Path, required=True, help="元のレシート画像")
+    p_record.add_argument(
+        "--image", "--file", dest="image", type=Path, required=True,
+        help="元のレシートファイル（写真でもPDFでもよい）",
+    )
     p_record.add_argument(
         "--json", default="-", help="レシート内容のJSON。'-' で標準入力（既定）"
     )
     p_record.add_argument("--force", action="store_true", help="取り込み済みでも上書きする")
     _add_common(p_record)
     p_record.set_defaults(func=cmd_record)
+
+    p_remove = sub.add_parser("remove", help="入れ間違い・重複を台帳から取り消す")
+    target = p_remove.add_mutually_exclusive_group(required=True)
+    target.add_argument("--file", type=Path, help="取り消したいレシートの元ファイル")
+    target.add_argument("--match", help="店名・日付・金額など（例: 9,300 / JR / 2026-09-19）")
+    p_remove.add_argument("--all", action="store_true", help="複数あたってもまとめて取り消す")
+    _add_common(p_remove)
+    p_remove.set_defaults(func=cmd_remove)
 
     p_build = sub.add_parser("build", help="台帳からCSVだけ作り直す")
     _add_common(p_build)

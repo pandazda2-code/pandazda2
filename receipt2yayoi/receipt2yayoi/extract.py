@@ -15,7 +15,10 @@ from receipt2yayoi.models import Receipt, ReceiptLine
 
 MODEL = "claude-opus-5"
 
-SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"}
+PDF_SUFFIX = ".pdf"
+# 交通系や通信費はWebから領収書PDFを落とすことが多いので、写真と同列に扱う
+SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | {PDF_SUFFIX}
 
 SYSTEM = """あなたは日本の個人事業主の経理担当者です。
 渡されたレシート・領収書の画像を読み取り、record_receipt ツールで内容を報告してください。
@@ -90,6 +93,20 @@ RECEIPT_TOOL: dict = {
 }
 
 
+def encode_document(path: Path) -> dict:
+    """レシート1件分の添付ブロックを作る。写真でもPDFでもよい。"""
+    if path.suffix.lower() == PDF_SUFFIX:
+        return {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": base64.standard_b64encode(path.read_bytes()).decode("ascii"),
+            },
+        }
+    return _encode_image(path)
+
+
 def _encode_image(path: Path) -> dict:
     media_type, _ = mimetypes.guess_type(path.name)
     if media_type not in {"image/jpeg", "image/png", "image/gif", "image/webp"}:
@@ -151,8 +168,8 @@ def extract_receipt(path: Path, client: anthropic.Anthropic | None = None) -> Re
             {
                 "role": "user",
                 "content": [
-                    _encode_image(path),
-                    {"type": "text", "text": "このレシートを読み取ってください。"},
+                    encode_document(path),
+                    {"type": "text", "text": "このレシート・領収書を読み取ってください。"},
                 ],
             }
         ],
@@ -202,7 +219,7 @@ def build_receipt(path: Path, data: dict) -> Receipt:
 
 
 def iter_images(target: Path) -> list[Path]:
-    """ファイルまたはディレクトリから対象画像を集める。"""
+    """ファイルまたはディレクトリから対象ファイル（写真・PDF）を集める。"""
     if target.is_file():
         return [target]
     return sorted(

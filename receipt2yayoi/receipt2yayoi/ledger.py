@@ -73,6 +73,32 @@ class Ledger:
             "imported_at": datetime.now().isoformat(timespec="seconds"),
         }
 
+    def remove(self, key: str) -> Receipt | None:
+        """台帳から1件取り消す。消したものを返す（報告に使う）。"""
+        entry = self.entries.pop(key, None)
+        return deserialize(entry) if entry else None
+
+    def find(self, text: str) -> list[tuple[str, Receipt]]:
+        """店名・日付・金額のどれかに当てはまる件を探す。
+
+        取り消したいレシートを指すのに、利用者が言うのは
+        「9/19のJRのやつ」であってハッシュ値ではない。
+        """
+        needle = text.strip().lower()
+        hits = []
+        for key, entry in self.entries.items():
+            receipt = deserialize(entry)
+            haystack = " ".join([
+                key,
+                receipt.shop,
+                receipt.source,
+                receipt.issue_date.isoformat() if receipt.issue_date else "",
+                str(int(receipt.total)),
+            ]).lower()
+            if needle in haystack:
+                hits.append((key, receipt))
+        return hits
+
     def receipts(self, year: int | None = None) -> list[Receipt]:
         """取引日順のレシート一覧。日付不明のものは先頭に出して目立たせる。"""
         items = [deserialize(entry) for entry in self.entries.values()]

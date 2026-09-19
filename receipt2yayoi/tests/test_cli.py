@@ -200,3 +200,64 @@ def test_unknown_person_is_rejected_without_writing_anything(tmp_path, photo, fa
     assert run(["add", str(photo), "--person", "太郎"]) == 2
     assert not (tmp_path / "ledger").exists()
     assert len(fake_extract) == 0  # 読み取りにも進まない
+
+
+def test_remove_by_file_takes_it_back_out(tmp_path, photo, fake_extract, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    other = tmp_path / "IMG_0002.jpg"
+    other.write_bytes(b"\xff\xd8fake-jpeg-2")
+
+    run_for("英之", "add", str(photo))
+    run_for("英之", "add", str(other))
+    assert run_for("英之", "remove", "--file", str(photo)) == 0
+
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 1
+    with Path("out/hideyuki/yayoi_import.csv").open(encoding="cp932", newline="") as f:
+        assert len(list(csv.reader(f))) == 1  # CSVも作り直される
+
+
+def test_remove_refuses_when_the_match_is_ambiguous(tmp_path, photo, fake_extract, monkeypatch):
+    """どれを消すか曖昧なまま消さない。消した経費は写真からしか戻せない。"""
+    monkeypatch.chdir(tmp_path)
+    other = tmp_path / "IMG_0002.jpg"
+    other.write_bytes(b"\xff\xd8fake-jpeg-2")
+    run_for("英之", "add", str(photo))
+    run_for("英之", "add", str(other))
+
+    assert run_for("英之", "remove", "--match", "ファミリーマート") == 1
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 2  # 1枚も消えていない
+
+    assert run_for("英之", "remove", "--match", "ファミリーマート", "--all") == 0
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 0
+
+
+def test_remove_on_missing_receipt_reports_instead_of_silently_passing(
+    tmp_path, photo, fake_extract, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    run_for("英之", "add", str(photo))
+    assert run_for("英之", "remove", "--match", "存在しない店") == 1
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 1
+
+
+def test_remove_does_not_touch_the_other_persons_ledger(
+    tmp_path, photo, fake_extract, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    run_for("英之", "add", str(photo))
+    run_for("祐子", "add", str(photo))
+
+    run_for("英之", "remove", "--file", str(photo))
+
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 0
+    assert len(Ledger(Path("ledger/yuko.json"))) == 1  # 祐子の分は無傷
+
+
+def test_removing_the_last_receipt_empties_the_csv_too(tmp_path, photo, fake_extract, monkeypatch):
+    """取り消したのにCSVに残っていたら、そのまま申告に載ってしまう。"""
+    monkeypatch.chdir(tmp_path)
+    run_for("英之", "add", str(photo))
+    assert run_for("英之", "remove", "--file", str(photo)) == 0
+
+    with Path("out/hideyuki/yayoi_import.csv").open(encoding="cp932", newline="") as f:
+        assert list(csv.reader(f)) == []
