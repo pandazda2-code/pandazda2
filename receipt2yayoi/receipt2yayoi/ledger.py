@@ -16,9 +16,6 @@ from pathlib import Path
 
 from receipt2yayoi.models import Receipt, ReceiptLine
 
-DEFAULT_LEDGER = Path("ledger/receipts.json")
-
-
 def image_id(path: Path) -> str:
     """画像の中身から一意なIDを作る。
 
@@ -57,7 +54,7 @@ def deserialize(data: dict) -> Receipt:
 class Ledger:
     """レシートをためておく台帳（JSONファイル1つ）。"""
 
-    def __init__(self, path: Path = DEFAULT_LEDGER):
+    def __init__(self, path: Path):  # 既定値は置かない。誰の台帳かを曖昧にしないため
         self.path = path
         self.entries: dict[str, dict] = {}
         if path.exists():

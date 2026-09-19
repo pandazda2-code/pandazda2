@@ -2,10 +2,12 @@
 
 写真を台帳に取り込み、台帳まるごとから弥生用CSVを作り直す。
 
-  receipt2yayoi add 写真.jpg              # 1枚追加
-  receipt2yayoi add 写真フォルダ/          # まとめて追加
-  receipt2yayoi build --year 2026         # CSVだけ作り直す
-  receipt2yayoi list                      # 台帳の中身を見る
+  receipt2yayoi add 写真.jpg --person 英之       # 1枚追加
+  receipt2yayoi add 写真フォルダ/ --person 祐子   # まとめて追加
+  receipt2yayoi build --person 英之 --year 2026  # CSVだけ作り直す
+  receipt2yayoi list --person 祐子               # 台帳の中身を見る
+
+英之と祐子は申告が別。--person は必須で、既定値も推測もない。
 """
 
 from __future__ import annotations
@@ -16,7 +18,8 @@ import sys
 from pathlib import Path
 
 from receipt2yayoi.extract import build_receipt, extract_receipt, iter_images
-from receipt2yayoi.ledger import DEFAULT_LEDGER, Ledger, image_id
+from receipt2yayoi.ledger import Ledger, image_id
+from receipt2yayoi.people import UnknownPerson, names, resolve
 from receipt2yayoi.yayoi import (
     build_journals,
     total_amount,
@@ -27,12 +30,27 @@ from receipt2yayoi.yayoi import (
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--ledger", type=Path, default=DEFAULT_LEDGER, help="台帳ファイル（既定: ledger/receipts.json）"
+        "--person",
+        required=True,
+        help=f"誰の台帳か（{names()}）。申告が別なので必ず指定する",
     )
-    parser.add_argument(
-        "-o", "--out", type=Path, default=Path("out"), help="CSVの出力先（既定: out）"
-    )
+    parser.add_argument("--ledger", type=Path, default=None, help="台帳ファイル（既定: ledger/<誰>.json）")
+    parser.add_argument("-o", "--out", type=Path, default=None, help="CSVの出力先（既定: out/<誰>）")
     parser.add_argument("--year", type=int, default=None, help="この年の分だけCSVにする")
+
+
+def _resolve_person(args: argparse.Namespace) -> None:
+    """--person を解決し、台帳とCSVの置き場所を決める。
+
+    明示指定がなければ人ごとのフォルダに振り分ける。
+    ここを間違えると別人の経費が混ざるので、既定値に頼りきらず
+    使った場所を必ず画面に出す。
+    """
+    args.person = resolve(args.person)
+    if args.ledger is None:
+        args.ledger = args.person.ledger_path()
+    if args.out is None:
+        args.out = args.person.out_dir()
 
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -67,7 +85,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         added += 1
         print(f"  ✓ {receipt.issue_date or '日付不明'} {receipt.shop} {int(receipt.total):,}円")
 
-    print(f"\n{added}枚を追加（スキップ {skipped} / 失敗 {failed}）。台帳は合計 {len(ledger)}枚。")
+    print(f"\n{args.person.name}の台帳に{added}枚を追加（スキップ {skipped} / 失敗 {failed}）。合計 {len(ledger)}枚。")
     if added == 0 and skipped == 0:
         return 1
     return _build(ledger, args)
@@ -93,7 +111,7 @@ def cmd_record(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
     key = image_id(args.image)
     if key in ledger and not args.force:
-        print(f"{args.image.name} は取り込み済みです。上書きするなら --force。")
+        print(f"{args.image.name} は{args.person.name}の台帳に取り込み済みです。上書きするなら --force。")
         return _build(ledger, args)
 
     receipt = build_receipt(args.image, data)
@@ -103,14 +121,14 @@ def cmd_record(args: argparse.Namespace) -> int:
     if receipt.warnings:
         for w in receipt.warnings:
             print(f"    ⚠ {w}")
-    print(f"台帳は合計 {len(ledger)}枚。")
+    print(f"{args.person.name}の台帳は合計 {len(ledger)}枚。")
     return _build(ledger, args)
 
 
 def cmd_build(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
     if not len(ledger):
-        print(f"台帳が空です: {args.ledger}", file=sys.stderr)
+        print(f"{args.person.name}の台帳が空です: {args.ledger}", file=sys.stderr)
         return 1
     return _build(ledger, args)
 
@@ -118,7 +136,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 def _build(ledger: Ledger, args: argparse.Namespace) -> int:
     receipts = ledger.receipts(year=args.year)
     if not receipts:
-        print(f"{args.year}年のレシートが台帳にありません。", file=sys.stderr)
+        print(f"{args.person.name}の{args.year}年のレシートが台帳にありません。", file=sys.stderr)
         return 1
 
     journals = [j for r in receipts for j in build_journals(r)]
@@ -128,7 +146,10 @@ def _build(ledger: Ledger, args: argparse.Namespace) -> int:
 
     review_count = sum(1 for j in journals if j.needs_review)
     print()
-    print(f"レシート {len(receipts)}枚 → 仕訳 {len(journals)}行 / 合計 {int(total_amount(journals)):,}円")
+    print(
+        f"【{args.person.name}】レシート {len(receipts)}枚 → 仕訳 {len(journals)}行 "
+        f"/ 合計 {int(total_amount(journals)):,}円"
+    )
     print(f"  弥生インポート用: {yayoi_path}")
     print(f"  確認用一覧      : {review_path}")
     if review_count:
@@ -140,13 +161,13 @@ def cmd_list(args: argparse.Namespace) -> int:
     ledger = Ledger(args.ledger)
     receipts = ledger.receipts(year=args.year)
     if not receipts:
-        print("台帳は空です。")
+        print(f"{args.person.name}の台帳は空です。")
         return 0
     for r in receipts:
         flag = " ⚠" if r.warnings or r.issue_date is None else ""
         date_str = r.issue_date.strftime("%Y/%m/%d") if r.issue_date else "日付不明  "
         print(f"{date_str}  {int(r.total):>8,}円  {r.shop}{flag}")
-    print(f"\n合計 {len(receipts)}枚 / {int(sum(r.total for r in receipts)):,}円")
+    print(f"\n【{args.person.name}】合計 {len(receipts)}枚 / {int(sum(r.total for r in receipts)):,}円")
     return 0
 
 
@@ -182,6 +203,11 @@ def main(argv: list[str] | None = None) -> int:
     p_list.set_defaults(func=cmd_list)
 
     args = parser.parse_args(argv)
+    try:
+        _resolve_person(args)
+    except UnknownPerson as exc:
+        print(exc, file=sys.stderr)
+        return 2
     return args.func(args)
 
 
