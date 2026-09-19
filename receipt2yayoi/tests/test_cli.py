@@ -261,3 +261,62 @@ def test_removing_the_last_receipt_empties_the_csv_too(tmp_path, photo, fake_ext
 
     with Path("out/hideyuki/yayoi_import.csv").open(encoding="cp932", newline="") as f:
         assert list(csv.reader(f)) == []
+
+
+def test_bulk_add_reads_in_parallel(tmp_path, monkeypatch):
+    """まとめて送ったぶんは同時に読む。10枚を順番待ちさせない。"""
+    import threading
+    import time
+
+    monkeypatch.chdir(tmp_path)
+    photos = []
+    for i in range(8):
+        p = tmp_path / f"IMG_{i}.jpg"
+        p.write_bytes(b"\xff\xd8fake" + str(i).encode())
+        photos.append(p)
+
+    in_flight = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def slow_extract(path, client=None):
+        nonlocal in_flight, peak
+        with lock:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        time.sleep(0.05)  # ネットワーク待ちのつもり
+        with lock:
+            in_flight -= 1
+        return Receipt(
+            source=str(path), issue_date=date(2026, 3, 1), shop="テスト",
+            total=Decimal("100"), lines=[], payment="現金", invoice_number=None,
+        )
+
+    monkeypatch.setattr(cli, "extract_receipt", slow_extract)
+    run_for("英之", "add", *[str(p) for p in photos], "--workers", "4")
+
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 8
+    assert peak > 1, "並列に読めていない"
+
+
+def test_one_failure_does_not_lose_the_others(tmp_path, monkeypatch):
+    """8枚中1枚が読めなくても、残り7枚は台帳に残す。"""
+    monkeypatch.chdir(tmp_path)
+    photos = []
+    for i in range(8):
+        p = tmp_path / f"IMG_{i}.jpg"
+        p.write_bytes(b"\xff\xd8fake" + str(i).encode())
+        photos.append(p)
+
+    def flaky(path, client=None):
+        if path.name == "IMG_3.jpg":
+            raise RuntimeError("読み取れませんでした")
+        return Receipt(
+            source=str(path), issue_date=date(2026, 3, 1), shop="テスト",
+            total=Decimal("100"), lines=[], payment="現金", invoice_number=None,
+        )
+
+    monkeypatch.setattr(cli, "extract_receipt", flaky)
+    run_for("英之", "add", *[str(p) for p in photos])
+
+    assert len(Ledger(Path("ledger/hideyuki.json"))) == 7

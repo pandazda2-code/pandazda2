@@ -29,7 +29,7 @@ Claude に「**英之の分、確定申告の写真取り込み**」と言って
 ### B. パソコンで、たまった写真をまとめて
 
 ```
-$ receipt2yayoi add ~/Pictures/レシート2026 --person 英之 --year 2026
+$ receipt2yayoi add ~/Pictures/レシート2026 --person 英之 --year 2026 --workers 8
   読み取り中… IMG_0412.jpg
   ✓ 2026-03-01 JR東日本 東京駅 1,340円
   読み取り中… IMG_0413.jpg
@@ -64,7 +64,7 @@ export ANTHROPIC_API_KEY=sk-ant-...   # または `ant auth login`
 
 | コマンド | すること |
 |---|---|
-| `receipt2yayoi add <写真 or フォルダ> --person 英之` | 写真を読み取って台帳に追加し、CSVを作り直す |
+| `receipt2yayoi add <写真 or フォルダ> --person 英之` | 写真・PDFを読み取って台帳に追加し、CSVを作り直す |
 | `receipt2yayoi record --person 祐子 --image <写真>` | 読み取り済みの内容をJSONで台帳に記録（チャット添付用） |
 | `receipt2yayoi build --person 英之` | 台帳からCSVだけ作り直す |
 | `receipt2yayoi list --person 祐子` | 台帳の中身を一覧表示する |
@@ -74,7 +74,22 @@ export ANTHROPIC_API_KEY=sk-ant-...   # または `ant auth login`
 `ゆうこ` / `yuko` などの呼び方を受け付けます。**既定値はありません** —
 うっかり片方に寄せる事故を防ぐため、分からなければコマンドが止まります。
 
-その他: `--year 2026`（その年の分だけCSVにする）、`-o`（出力先）、`--ledger`（台帳の場所）
+その他: `--year 2026`（その年の分だけCSVにする）、`-o`（出力先）、`--ledger`（台帳の場所）、
+`--workers 8`（`add` の同時読み取り数。既定4）
+
+## 速さについて
+
+1件あたりの内訳はこうです:
+
+| 処理 | 時間 |
+|---|---|
+| 台帳に記録してCSVを作り直す | 約1秒 |
+| GitHubに保存（commit + push） | 約2秒 |
+| レシートを読み取る | 数秒（ネットワーク待ちが大半） |
+
+**まとめて送るほど1枚あたりが速くなります。** 読み取りは並列で走り（`add` は
+既定4件同時）、保存は最後に1回で済むためです。10枚を1枚ずつ送るより、
+10枚まとめて送るほうが体感で数倍違います。
 
 ## 2人分の置き場所
 

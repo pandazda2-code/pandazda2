@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from receipt2yayoi.extract import build_receipt, extract_receipt, iter_images
@@ -62,29 +63,40 @@ def cmd_add(args: argparse.Namespace) -> int:
             return 1
         images.extend(iter_images(target))
     if not images:
-        print("対象の画像がありません。", file=sys.stderr)
+        print("対象のファイルがありません。", file=sys.stderr)
         return 1
 
     ledger = Ledger(args.ledger)
     added = skipped = failed = 0
 
+    todo: list[tuple[str, Path]] = []
     for image in images:
         key = image_id(image)
         if key in ledger:
             print(f"  ・{image.name} は取り込み済みです（スキップ）")
             skipped += 1
             continue
-        print(f"  読み取り中… {image.name}")
-        try:
-            receipt = extract_receipt(image)
-        except Exception as exc:  # 1枚失敗しても残りは続ける
-            print(f"  ✗ {image.name}: {exc}", file=sys.stderr)
-            failed += 1
-            continue
-        ledger.add(key, receipt)
-        ledger.save()  # 1枚ごとに保存。途中で落ちても読み取り済みの分は残る
-        added += 1
-        print(f"  ✓ {receipt.issue_date or '日付不明'} {receipt.shop} {int(receipt.total):,}円")
+        todo.append((key, image))
+
+    if todo:
+        print(f"  {len(todo)}件を読み取ります（同時 {args.workers}件）…")
+
+    # 読み取りはネットワーク待ちがほとんど。まとめて並列に投げる。
+    # 台帳への書き込みは受け取る側（このスレッド）だけが行う。
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(extract_receipt, image): (key, image) for key, image in todo}
+        for future in as_completed(futures):
+            key, image = futures[future]
+            try:
+                receipt = future.result()
+            except Exception as exc:  # 1枚失敗しても残りは続ける
+                print(f"  ✗ {image.name}: {exc}", file=sys.stderr)
+                failed += 1
+                continue
+            ledger.add(key, receipt)
+            ledger.save()  # 1件ごとに保存。途中で落ちても読み取り済みの分は残る
+            added += 1
+            print(f"  ✓ {receipt.issue_date or '日付不明'} {receipt.shop} {int(receipt.total):,}円")
 
     print(f"\n{args.person.name}の台帳に{added}枚を追加（スキップ {skipped} / 失敗 {failed}）。合計 {len(ledger)}枚。")
     if added == 0 and skipped == 0:
@@ -215,7 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_add = sub.add_parser("add", help="写真を台帳に取り込み、CSVを作り直す")
-    p_add.add_argument("targets", type=Path, nargs="+", help="画像ファイル、またはフォルダ")
+    p_add.add_argument("targets", type=Path, nargs="+", help="画像・PDFファイル、またはフォルダ")
+    p_add.add_argument(
+        "--workers", type=int, default=4, help="同時に読み取る件数（既定: 4）"
+    )
     _add_common(p_add)
     p_add.set_defaults(func=cmd_add)
 
