@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "receipts": {
+    "b502d9192d16954a": {
+      "source": "/root/.claude/uploads/d594ee40-306e-5a2c-817c-8860e9796be4/b44154eb-image.jpg",
+      "issue_date": "2026-09-19",
+      "shop": "JR東海 EX予約 豊橋→品川（こだま818号）",
+      "total": "9300",
+      "lines": [
+        {
+          "name": "新幹線特急券・乗車券 豊橋→品川",
+          "amount": "9300",
+          "tax_rate": 10
+        }
+      ],
+      "payment": "クレジットカード",
+      "invoice_number": null,
+      "note": "",
+      "warnings": [
+        "EXご利用票は領収書ではありません。EX予約の会員ページから領収書を発行できます。"
+      ],
+      "imported_at": "2026-09-19T06:07:25"
+    }
+  }
+}
