@@ -1,0 +1,19 @@
+[project]
+name = "receipt2yayoi"
+version = "0.1.0"
+description = "レシート写真を弥生会計の仕訳インポートCSVに変換するツール"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+receipt2yayoi = "receipt2yayoi.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["receipt2yayoi*"]
