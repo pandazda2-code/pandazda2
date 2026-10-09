@@ -1,3 +1,5 @@
+import pytest
+
 import csv
 from datetime import date
 from decimal import Decimal
@@ -86,3 +88,19 @@ def test_receipt_without_lines_falls_back_to_total():
     assert len(journals) == 1
     assert int(journals[0].amount) == 2200
     assert int(journals[0].tax_amount) == 200
+
+
+@pytest.mark.parametrize(
+    "shop",
+    [
+        "東海旅客鉄道（スマートEX）豊橋→品川 こだま818号",  # 領収書の発行者名
+        "JR東海 スマートEX 東京→豊橋（自由席）",
+        "EXご利用票 品川→名古屋",
+        "新幹線 のぞみ 東京→新大阪",
+    ],
+)
+def test_shinkansen_is_travel_expense(shop: str):
+    """新幹線の証憑は書き方がばらつく。どれでも旅費交通費に落とす。"""
+    journals = build_journals(make_receipt(shop=shop, lines=[], total=Decimal("8570")))
+    assert journals[0].debit_account == "旅費交通費"
+    assert not journals[0].needs_review
