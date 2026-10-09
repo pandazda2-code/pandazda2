@@ -27,8 +27,11 @@ class Person:
 PEOPLE: tuple[Person, ...] = (
     Person(
         slug="hideyuki",
-        name="英之",
-        aliases=("英之", "ひでゆき", "ヒデユキ", "hideyuki", "hide", "英之さん", "英之用"),
+        name="半田英之",
+        aliases=(
+            "英之", "ひでゆき", "ヒデユキ", "hideyuki", "hide", "英之さん", "英之用",
+            "半田英之", "はんだひでゆき", "handa hideyuki", "hideyuki handa",
+        ),
     ),
     Person(
         slug="yuko",

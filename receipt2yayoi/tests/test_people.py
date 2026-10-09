@@ -13,6 +13,9 @@ from receipt2yayoi.people import UnknownPerson, resolve
         ("hideyuki", "hideyuki"),
         ("Hide", "hideyuki"),
         ("英之用", "hideyuki"),
+        ("半田英之", "hideyuki"),
+        ("半田英之用", "hideyuki"),
+        ("はんだひでゆき", "hideyuki"),
         (" 英之 ", "hideyuki"),
         ("祐子", "yuko"),
         ("ゆうこ", "yuko"),
@@ -24,9 +27,12 @@ def test_accepts_common_ways_of_naming_them(value: str, expected: str):
     assert resolve(value).slug == expected
 
 
-@pytest.mark.parametrize("value", ["", "   ", "太郎", "ひで子", "unknown"])
+@pytest.mark.parametrize("value", ["", "   ", "太郎", "ひで子", "unknown", "半田"])
 def test_refuses_to_guess(value: str):
-    """曖昧なら止まる。別人の台帳に入れるより、聞き直すほうがはるかにまし。"""
+    """曖昧なら止まる。別人の台帳に入れるより、聞き直すほうがはるかにまし。
+
+    姓だけ（「半田」）も受け付けない。2人が同姓なら、どちらか特定できない。
+    """
     with pytest.raises(UnknownPerson):
         resolve(value)
 
