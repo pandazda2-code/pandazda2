@@ -48,8 +48,8 @@ class Journal:
     entry_date: date
     debit_account: str
     debit_sub: str = ""
-    debit_tax: str = "課対仕入10%"
-    credit_account: str = "現金"
+    debit_tax: str = "課対仕入内10%"
+    credit_account: str = "事業主借"
     credit_sub: str = ""
     credit_tax: str = "対象外"
     amount: Decimal = Decimal(0)

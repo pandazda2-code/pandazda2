@@ -7,6 +7,7 @@ LLMに全部任せず、まずここのキーワード表で決める。
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, ROUND_DOWN
 
 # 店名・品目キーワード → 勘定科目。上から順に最初に一致したものを使う。
@@ -46,19 +47,17 @@ REDUCED_RATE_HINTS = ("弁当", "おにぎり", "飲料", "パン", "牛乳", "�
                       "野菜", "菓子", "コーヒー豆", "水")
 
 # 支払手段 → 貸方科目
+#
+# 既定は「事業主借」。個人のカード・現金で立て替えて払っているため。
+# 事業用の口座やカードだと分かっているものだけ、普通預金・未払金にする。
 PAYMENT_ACCOUNTS: dict[str, str] = {
-    "現金": "現金",
-    "クレジットカード": "未払金",
-    "クレジット": "未払金",
-    "カード": "未払金",
-    "電子マネー": "事業主貸",
-    "交通系ic": "事業主貸",
-    "qr": "事業主貸",
-    "paypay": "事業主貸",
-    "デビット": "普通預金",
+    "事業用口座": "普通預金",
+    "事業用カード": "未払金",
     "口座振替": "普通預金",
     "銀行振込": "普通預金",
 }
+
+DEFAULT_CREDIT_ACCOUNT = "事業主借"
 
 DEFAULT_ACCOUNT = "雑費"
 
@@ -82,19 +81,32 @@ def guess_payment_account(payment: str) -> str:
     for token, account in PAYMENT_ACCOUNTS.items():
         if token in key:
             return account
-    return "現金"
+    return DEFAULT_CREDIT_ACCOUNT
 
 
-def tax_category(rate: int, invoice_number: str | None) -> str:
+# インボイス経過措置の控除率が切り替わる日。
+# 2023/10/1〜2026/9/30 は80%、2026/10/1〜2029/9/30 は70%。
+TRANSITIONAL_70_FROM = date(2026, 10, 1)
+
+
+def tax_category(
+    rate: int, invoice_number: str | None, entry_date: date | None = None
+) -> str:
     """弥生の税区分文字列を返す。
 
-    インボイス登録番号がないレシートは仕入税額控除が満額使えないため、
-    経過措置の区分（80%控除）を当てる。
+    税込金額で記帳するので「内」（内税）を使う。
+
+    インボイス登録番号がないものは仕入税額控除が満額使えない。控除率は
+    取引日で変わるため、日付を見て区分を選ぶ。日付が読めないものは
+    どちらとも決められないので、不利でない側（80%）にせず新しい側に寄せず、
+    呼び出し側で要確認に回している前提で現行の率を当てる。
     """
-    base = f"課対仕入{rate}%"
-    if not invoice_number:
-        return f"{base}区分80"
-    return base
+    base = f"課対仕入内{rate}%" if rate == 10 else f"課対仕入内軽減{rate}%"
+    if invoice_number:
+        return base
+    on = entry_date or TRANSITIONAL_70_FROM
+    ratio = 70 if on >= TRANSITIONAL_70_FROM else 80
+    return f"{base}区{ratio}%"
 
 
 def tax_amount(amount: Decimal, rate: int) -> Decimal:

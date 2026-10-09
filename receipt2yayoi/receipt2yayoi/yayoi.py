@@ -33,11 +33,14 @@ def build_journals(receipt: Receipt) -> list[Journal]:
         summary = receipt.shop or "（店名不明）"
         if len(receipt.subtotal_by_rate) > 1:
             summary = f"{summary} ({rate}%)"
+        summary = _fit_summary(summary)
         journals.append(
             Journal(
                 entry_date=receipt.issue_date,
                 debit_account=account,
-                debit_tax=rules.tax_category(rate, receipt.invoice_number),
+                debit_tax=rules.tax_category(
+                    rate, receipt.invoice_number, receipt.issue_date
+                ),
                 credit_account=credit_account,
                 amount=amount,
                 tax_amount=rules.tax_amount(amount, rate),
@@ -48,6 +51,16 @@ def build_journals(receipt: Receipt) -> list[Journal]:
             )
         )
     return journals
+
+
+SUMMARY_MAX = 32  # 弥生の摘要は全角32文字程度までしか表示されない
+
+
+def _fit_summary(text: str) -> str:
+    """摘要を弥生の表示幅に収める。切れるなら末尾を…にして気づけるようにする。"""
+    if len(text) <= SUMMARY_MAX:
+        return text
+    return text[: SUMMARY_MAX - 1] + "…"
 
 
 def _memo(receipt: Receipt) -> str:
@@ -83,7 +96,7 @@ def _row(journal: Journal) -> list[str]:
         journal.summary,           # 17 摘要
         "",                        # 18 番号
         "",                        # 19 期日
-        "3",                       # 20 タイプ
+        "0",                       # 20 タイプ
         "",                        # 21 生成元
         journal.memo,              # 22 仕訳メモ
         "0" if not journal.needs_review else "1",  # 23 付箋1（要確認に色を付ける）
