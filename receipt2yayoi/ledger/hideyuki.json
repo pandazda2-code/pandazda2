@@ -18,6 +18,46 @@
       "note": "",
       "warnings": [],
       "imported_at": "2026-09-19T06:14:11"
+    },
+    "eb3af3c2e68b0f48": {
+      "source": "/root/.claude/uploads/d594ee40-306e-5a2c-817c-8860e9796be4/3f653c95-image.jpg",
+      "issue_date": "2026-10-07",
+      "shop": "JR東海 スマートEX 東京→豊橋（自由席）",
+      "total": "8570",
+      "lines": [
+        {
+          "name": "新幹線 東京→豊橋 自由席",
+          "amount": "8570",
+          "tax_rate": 10
+        }
+      ],
+      "payment": "クレジットカード",
+      "invoice_number": null,
+      "note": "",
+      "warnings": [
+        "EXご利用票は領収書ではありません。EX予約の会員ページから領収書を発行できます。"
+      ],
+      "imported_at": "2026-10-09T13:52:17"
+    },
+    "2930b60db2cf324c": {
+      "source": "/root/.claude/uploads/d594ee40-306e-5a2c-817c-8860e9796be4/468bb8ad-image.jpg",
+      "issue_date": "2026-10-07",
+      "shop": "JR東海 スマートEX 豊橋→品川（自由席）",
+      "total": "8570",
+      "lines": [
+        {
+          "name": "新幹線 豊橋→品川 自由席",
+          "amount": "8570",
+          "tax_rate": 10
+        }
+      ],
+      "payment": "クレジットカード",
+      "invoice_number": null,
+      "note": "",
+      "warnings": [
+        "EXご利用票は領収書ではありません。EX予約の会員ページから領収書を発行できます。"
+      ],
+      "imported_at": "2026-10-09T13:52:26"
     }
   }
 }
