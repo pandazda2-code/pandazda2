@@ -46,6 +46,16 @@ li.task{display:flex;align-items:center;gap:12px;background:var(--surface);borde
 .meta{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .meta.late{color:var(--h48)}
 .amt{flex:none;font-size:12px;font-weight:500;color:var(--c);background:var(--soft);border-radius:6px;padding:2px 8px;max-width:40%;overflow-wrap:anywhere}
+.edit-btn{flex:none;border:0;background:transparent;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:6px}
+.body{cursor:text}
+li.task.editing{flex-direction:column;align-items:stretch;gap:8px;background:var(--surface)}
+.day li.task.editing{padding:8px;border:1px solid var(--c);border-radius:10px}
+.editform{display:flex;flex-wrap:wrap;gap:6px}
+.editform input,.editform select{min-width:0;font:inherit;font-size:16px;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.editform .ed-text{flex:1 1 100%}
+.editform .ed-amt{flex:1 1 100px}
+.editform .ed-day,.editform .ed-lane{flex:0 1 auto}
+.editform .acts{display:flex;gap:6px;margin-left:auto}
 .del{flex:none;border:0;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px}
 .empty{text-align:center;color:var(--muted);padding:32px 12px;border:1px dashed var(--line);border-radius:12px;font-size:14px}
 .btn{border:0;font:inherit;font-size:13px;font-weight:700;border-radius:9px;padding:8px 14px;cursor:pointer;background:var(--c,var(--week));color:#fff;white-space:nowrap}
@@ -179,6 +189,8 @@ const spaceOf = t => t.space || spaces[0]?.id || "work";
 const mine = list => list.filter(t => spaceOf(t) === space);
 let db = null;
 let weekOffset = 0;
+let editTask = null;  // 編集中のタスクid
+let draft = {};       // 編集中の入力内容（再描画しても消えないように保持）
 let selDay = null;
 
 const pad = n => String(n).padStart(2, "0");
@@ -233,13 +245,72 @@ function renderTabs() {
   }
 }
 
+function startEdit(t) {
+  editTask = t.id;
+  draft = {text: t.text, amount: t.amount || "", day: t.day || ymd(new Date()), lane: t.lane};
+  render();
+  const inp = document.querySelector(".ed-text");
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function stopEdit() { editTask = null; draft = {}; render(); }
+
+function editRow(t) {
+  const li = document.createElement("li");
+  li.className = "task editing";
+  const isWeek = draft.lane === "week";
+  let dayOpts = "";
+  if (isWeek) {
+    const days = weekDays(weekOffset).map(ymd);
+    if (draft.day && !days.includes(draft.day)) days.unshift(draft.day);
+    dayOpts = days.map(k => { const d = parseYmd(k); return `<option value="${k}" ${k === draft.day ? "selected" : ""}>${md(d)}(${W[d.getDay()]})</option>`; }).join("");
+  }
+  const laneOpts = ["h48","week","month"].map(k => `<option value="${k}" ${k === draft.lane ? "selected" : ""}>${LANES[k].name}</option>`).join("");
+  li.innerHTML = `<form class="editform" autocomplete="off">
+    <input class="ed-text" id="ed-text" maxlength="200" aria-label="タスク">
+    ${draft.lane !== "h48" ? `<input class="ed-amt" id="ed-amt" maxlength="40" placeholder="${draft.lane === "month" ? "目標量" : "時間・量"}" aria-label="時間・量">` : ""}
+    ${isWeek ? `<select class="ed-day" id="ed-day" aria-label="曜日">${dayOpts}</select>` : ""}
+    <select class="ed-lane" id="ed-lane" aria-label="レーン">${laneOpts}</select>
+    <div class="acts"><button class="btn ghost" type="button" data-act="cancel">キャンセル</button><button class="btn" type="submit">保存</button></div>
+  </form>`;
+  const f = li.querySelector("form");
+  f.querySelector(".ed-text").value = draft.text;
+  const amt = f.querySelector(".ed-amt"); if (amt) amt.value = draft.amount;
+  f.addEventListener("click", e => e.stopPropagation());
+  f.addEventListener("input", () => {
+    draft.text = f.querySelector(".ed-text").value;
+    if (amt) draft.amount = amt.value;
+  });
+  f.addEventListener("change", e => {
+    if (e.target.id === "ed-day") draft.day = e.target.value;
+    if (e.target.id === "ed-lane") { draft.lane = e.target.value; render(); }
+  });
+  f.addEventListener("keydown", e => { if (e.key === "Escape") stopEdit(); });
+  f.querySelector('[data-act="cancel"]').onclick = stopEdit;
+  f.onsubmit = e => {
+    e.preventDefault();
+    const text = draft.text.trim();
+    if (!text) { f.querySelector(".ed-text").focus(); return; }
+    const patch = {text, lane: draft.lane};
+    if (draft.lane !== "h48") patch.amount = draft.amount.trim();
+    if (draft.lane === "week") patch.day = draft.day || ymd(new Date());
+    if (draft.lane !== t.lane && draft.lane === "h48") patch.createdAt = Date.now(); // 48時間に移したら期限をそこから数える
+    save(t.id, patch);
+    stopEdit();
+  };
+  return li;
+}
+
 function taskRow(t, opts = {}) {
+  if (editTask === t.id) return editRow(t);
   const li = document.createElement("li");
   li.className = "task" + (t.done ? " done" : "");
   li.innerHTML = `<button class="chk" type="button" aria-label="${t.done ? "未完了に戻す" : "完了にする"}"></button>
     <div class="body"><span class="t">${esc(t.text)}</span>${opts.meta ? `<span class="meta ${opts.late ? "late" : ""}">${esc(opts.meta)}</span>` : ""}</div>
     ${t.amount ? `<span class="amt">${esc(t.amount)}</span>` : ""}
+    <button class="edit-btn" type="button" aria-label="修正">✎</button>
     <button class="del" type="button" aria-label="削除">×</button>`;
+  li.querySelector(".body").onclick = e => { e.stopPropagation(); startEdit(t); };
+  li.querySelector(".edit-btn").onclick = e => { e.stopPropagation(); startEdit(t); };
   li.querySelector(".chk").onclick = e => { e.stopPropagation(); save(t.id, {done: !t.done, doneAt: t.done ? null : Date.now()}); };
   li.querySelector(".del").onclick = e => { e.stopPropagation(); remove(t.id); };
   return li;
@@ -429,6 +500,8 @@ async function saveSpaces(list) {
 }
 
 function render() {
+  const focusId = document.activeElement?.id;
+  if (editTask && !tasks.some(t => t.id === editTask)) { editTask = null; draft = {}; }
   renderSpaces();
   document.documentElement.style.setProperty("--c", `var(${LANES[lane].color})`);
   renderTabs();
@@ -437,6 +510,10 @@ function render() {
   else renderList();
   renderAddBar();
   renderClock();
+  if (focusId && /^(ed-|spname-|spnew)/.test(focusId)) {
+    const el = $(focusId);
+    if (el && document.activeElement !== el) { el.focus(); if (el.setSelectionRange && el.value != null) el.setSelectionRange(el.value.length, el.value.length); }
+  }
 }
 
 function status(msg){ $("status").textContent = msg; }
@@ -486,7 +563,7 @@ $("doReview").onclick = async () => {
 };
 
 render();
-setInterval(() => { renderClock(); if (lane === "h48" && !editing) render(); }, 60000);
+setInterval(() => { renderClock(); if (lane === "h48" && !editing && !editTask) render(); }, 60000);
 
 (async () => {
   db = await window.claude?.use?.("db");
