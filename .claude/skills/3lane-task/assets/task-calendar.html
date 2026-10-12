@@ -1,0 +1,516 @@
+<title>3レーン・タスク</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one-column phone app — header with Friday countdown, purpose (space) chips, lane tabs, lane view (list / Mon–Sun grid / monthly history), fixed add bar */
+:root{
+  --bg:#f3f4f7; --surface:#ffffff; --fg:#1b1f2e; --muted:#6b7086; --line:#e2e4ec; --soft:#eceef4;
+  --h48:#e2553f; --week:#2f6fdb; --month:#7a52c7; --hist:#2e9a67;
+  --sans:"Zen Kaku Gothic New",system-ui,-apple-system,"Hiragino Sans",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11131b; --surface:#1a1d28; --fg:#e8eaf2; --muted:#9298ad; --line:#2a2e3d; --soft:#222636;
+  --h48:#f07a63; --week:#6b9cf0; --month:#a787e6; --hist:#4cc08a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11131b; --surface:#1a1d28; --fg:#e8eaf2; --muted:#9298ad; --line:#2a2e3d; --soft:#222636;
+  --h48:#f07a63; --week:#6b9cf0; --month:#a787e6; --hist:#4cc08a; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.app{max-width:640px;margin:0 auto;padding-inline:16px;padding-block:16px 160px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:20px;margin:0;font-weight:700}
+.today{color:var(--muted);font-size:13px}
+.next{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.next b{color:var(--fg);font-weight:500}
+.review{display:flex;align-items:center;gap:12px;justify-content:space-between;background:var(--surface);border:1px solid var(--week);border-radius:12px;padding:12px 14px;flex-wrap:wrap}
+.review p{margin:0;font-size:14px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--surface);padding:4px;border-radius:12px;border:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);z-index:2}
+.tab{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:500;padding:8px 2px;border-radius:9px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.tab .n{font-family:var(--mono);font-size:11px}
+.tab[aria-selected="true"]{background:var(--c);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--c,var(--week));outline-offset:2px}
+.lanehead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.lanehead h2{margin:0;font-size:16px}
+.lanehead .rule{font-size:12px;color:var(--muted)}
+.progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--c);transition:width .3s}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+li.task{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 10px 10px 12px}
+.chk{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--c);background:transparent;cursor:pointer;display:grid;place-items:center;padding:0}
+.done .chk{background:var(--c)}
+.done .chk::after{content:"";width:6px;height:11px;border:solid #fff;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.t{overflow-wrap:anywhere}
+.done .t{color:var(--muted);text-decoration:line-through}
+.meta{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.meta.late{color:var(--h48)}
+.amt{flex:none;font-size:12px;font-weight:500;color:var(--c);background:var(--soft);border-radius:6px;padding:2px 8px;max-width:40%;overflow-wrap:anywhere}
+.del{flex:none;border:0;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px}
+.empty{text-align:center;color:var(--muted);padding:32px 12px;border:1px dashed var(--line);border-radius:12px;font-size:14px}
+.btn{border:0;font:inherit;font-size:13px;font-weight:700;border-radius:9px;padding:8px 14px;cursor:pointer;background:var(--c,var(--week));color:#fff;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:500}
+.foot{display:flex;justify-content:flex-end}
+
+/* week grid */
+.weeknav{display:flex;align-items:center;gap:8px}
+.weeknav .range{font-family:var(--mono);font-size:13px;min-width:0}
+.days{display:grid;grid-template-columns:1fr;gap:8px}
+@media (min-width:600px){.days{grid-template-columns:1fr 1fr}}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;min-width:0}
+.day.sel{border-color:var(--c);box-shadow:0 0 0 1px var(--c)}
+.day.past{opacity:.72}
+.dhead{display:flex;align-items:baseline;gap:8px}
+.dhead .d{font-family:var(--mono);font-size:15px;font-variant-numeric:tabular-nums}
+.dhead .w{font-size:13px;font-weight:700}
+.dhead .w.sat{color:var(--week)} .dhead .w.sun{color:var(--h48)}
+.dhead .badge{margin-left:auto;font-size:11px;color:#fff;background:var(--c);border-radius:999px;padding:0 8px}
+.dhead .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.day ul{gap:4px}
+.day li.task{border:0;padding:4px 0;gap:8px;background:transparent;border-radius:0}
+.day .chk{width:20px;height:20px}
+.day .t{font-size:14px}
+.day .hint{font-size:12px;color:var(--muted)}
+
+/* history */
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 12px 8px;overflow-x:auto}
+.bars{display:grid;grid-template-columns:repeat(12,minmax(24px,1fr));gap:6px;align-items:end;height:120px}
+.bar{display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:2px;align-items:center}
+.bar .v{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.bar .stack{width:100%;display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden;background:var(--soft)}
+.bar .stack i{display:block}
+.bars-x{display:grid;grid-template-columns:repeat(12,minmax(24px,1fr));gap:6px;margin-top:4px}
+.bars-x span{font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+details.month{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 12px}
+details.month summary{cursor:pointer;padding:12px 0;display:flex;align-items:center;gap:10px;list-style:none;flex-wrap:wrap}
+details.month summary::-webkit-details-marker{display:none}
+details.month summary .m{font-weight:700}
+details.month summary .total{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.chips{display:flex;gap:6px;margin-left:auto}
+.chip{font-size:11px;border-radius:999px;padding:1px 8px;color:#fff}
+.hgroup{display:flex;flex-direction:column;gap:4px;padding-bottom:12px}
+.hgroup h3{font-size:12px;margin:8px 0 2px;color:var(--muted);font-weight:700}
+.hitem{display:flex;gap:8px;font-size:14px;align-items:baseline}
+.hitem .when{font-family:var(--mono);font-size:11px;color:var(--muted);flex:none;width:3.6em}
+.hitem .t{flex:1;min-width:0}
+
+/* add bar */
+.addbar{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.addbar form{max-width:640px;margin:0 auto;display:flex;gap:8px;flex-wrap:wrap}
+.addbar input,.addbar select{min-width:0;font:inherit;font-size:16px;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+#addInput{flex:1 1 200px}
+#addAmount{flex:0 1 120px}
+#addDay{flex:0 0 auto}
+/* spaces */
+.spaces{display:flex;gap:6px;align-items:center;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.spaces::-webkit-scrollbar{display:none}
+.sp{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:13px;font-weight:500;border-radius:999px;padding:5px 14px;cursor:pointer;white-space:nowrap}
+.sp[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.sp.edit{color:var(--muted);border-style:dashed}
+.sp .n{font-family:var(--mono);font-size:11px;opacity:.7;margin-left:4px}
+.spedit{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.spedit h2{margin:0;font-size:15px}
+.sprow{display:flex;gap:8px;align-items:center}
+.sprow input{flex:1;min-width:0;font:inherit;font-size:16px;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.spnote{font-size:12px;color:var(--muted);margin:0}
+.status{font-size:12px;color:var(--muted);text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header>
+    <div>
+      <div class="today" id="today"></div>
+      <h1 id="spaceTitle">タスク</h1>
+    </div>
+    <div class="next">次の週次更新<br><b id="nextAt">金 21:00</b> <span id="nextIn"></span></div>
+  </header>
+
+  <div class="spaces" id="spaces"></div>
+  <div class="spedit" id="spedit" hidden></div>
+
+  <div class="review" id="review" hidden>
+    <p>週次更新の時間です。完了したタスクを履歴に移して、来週の分を入れましょう。</p>
+    <button class="btn" id="doReview" type="button">完了分を履歴へ</button>
+  </div>
+
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+
+  <section id="view" style="display:flex;flex-direction:column;gap:12px"></section>
+  <div class="status" id="status">読み込み中…</div>
+</div>
+
+<div class="addbar" id="addbar">
+  <form id="addForm" autocomplete="off">
+    <select id="addDay" aria-label="曜日"></select>
+    <input id="addInput" placeholder="タスクを追加" enterkeyhint="done" maxlength="200" aria-label="タスク">
+    <input id="addAmount" placeholder="時間・量" maxlength="40" aria-label="使う時間または量">
+    <button class="btn" type="submit">追加</button>
+  </form>
+</div>
+
+<script>
+const LANES = {
+  h48:  {name:"48時間", title:"48時間以内にやること", rule:"終わったら入れ替え", color:"--h48"},
+  week: {name:"今週",   title:"今週やること",         rule:"毎週金曜 21:00 に更新", color:"--week"},
+  month:{name:"今月",   title:"今月達成すること",     rule:"金曜の更新で見直し", color:"--month"},
+  hist: {name:"履歴",   title:"できたことの履歴",     rule:"月ごとに記録", color:"--hist"},
+};
+const W = ["日","月","火","水","木","金","土"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let lane = "h48";
+try { lane = localStorage.getItem("lane") || "h48"; } catch(e) {}
+if (!LANES[lane]) lane = "h48";
+
+let tasks = [];      // {id, text, lane, done, createdAt, doneAt, day?, amount?}
+let history = {};    // "2026-10" -> [{text, lane, amount, day, doneAt}]
+let lastReview = 0;
+const DEFAULT_SPACES = [{id:"work", name:"仕事"}, {id:"private", name:"プライベート"}];
+let spaces = DEFAULT_SPACES;
+let space = "work";
+try { space = localStorage.getItem("space") || "work"; } catch(e) {}
+let editing = false;
+let spaceMsg = "";
+const spaceOf = t => t.space || spaces[0]?.id || "work";
+const mine = list => list.filter(t => spaceOf(t) === space);
+let db = null;
+let weekOffset = 0;
+let selDay = null;
+
+const pad = n => String(n).padStart(2, "0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const ym = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+const parseYmd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+function monday(offset = 0) {
+  const d = new Date(); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
+  return d;
+}
+function weekDays(offset) {
+  const m = monday(offset);
+  return Array.from({length:7}, (_, i) => { const d = new Date(m); d.setDate(m.getDate() + i); return d; });
+}
+function lastFriday21(now = new Date()) {
+  const d = new Date(now); d.setHours(21,0,0,0);
+  d.setDate(d.getDate() - ((d.getDay() - 5 + 7) % 7));
+  if (d > now) d.setDate(d.getDate() - 7);
+  return d;
+}
+function nextFriday21(now = new Date()) { const d = lastFriday21(now); d.setDate(d.getDate() + 7); return d; }
+function fmtLeft(ms) {
+  const h = Math.floor(ms / 3600000);
+  if (h >= 24) return `${Math.floor(h/24)}日${h%24}時間`;
+  return `${h}時間${Math.floor(ms/60000)%60}分`;
+}
+const md = d => `${d.getMonth()+1}/${d.getDate()}`;
+
+function renderClock() {
+  const now = new Date();
+  $("today").textContent = `${now.getMonth()+1}月${now.getDate()}日(${W[now.getDay()]})`;
+  const n = nextFriday21(now);
+  $("nextAt").textContent = `${md(n)}(金) 21:00`;
+  $("nextIn").textContent = "あと" + fmtLeft(n - now);
+  $("review").hidden = !(db && lastReview < lastFriday21(now).getTime());
+}
+
+function renderTabs() {
+  $("tabs").innerHTML = "";
+  for (const [k, v] of Object.entries(LANES)) {
+    const b = document.createElement("button");
+    b.className = "tab"; b.type = "button"; b.setAttribute("role","tab");
+    b.setAttribute("aria-selected", k === lane);
+    b.style.setProperty("--c", `var(${v.color})`);
+    let n;
+    if (k === "hist") n = `${(historyMonths()[ym(new Date())] || []).length}件`;
+    else n = `残り ${mine(tasks).filter(t => t.lane === k && !t.done).length}`;
+    b.innerHTML = `<span>${esc(v.name)}</span><span class="n">${n}</span>`;
+    b.onclick = () => { lane = k; try{localStorage.setItem("lane",k)}catch(e){}; render(); };
+    $("tabs").appendChild(b);
+  }
+}
+
+function taskRow(t, opts = {}) {
+  const li = document.createElement("li");
+  li.className = "task" + (t.done ? " done" : "");
+  li.innerHTML = `<button class="chk" type="button" aria-label="${t.done ? "未完了に戻す" : "完了にする"}"></button>
+    <div class="body"><span class="t">${esc(t.text)}</span>${opts.meta ? `<span class="meta ${opts.late ? "late" : ""}">${esc(opts.meta)}</span>` : ""}</div>
+    ${t.amount ? `<span class="amt">${esc(t.amount)}</span>` : ""}
+    <button class="del" type="button" aria-label="削除">×</button>`;
+  li.querySelector(".chk").onclick = e => { e.stopPropagation(); save(t.id, {done: !t.done, doneAt: t.done ? null : Date.now()}); };
+  li.querySelector(".del").onclick = e => { e.stopPropagation(); remove(t.id); };
+  return li;
+}
+
+function laneHead(L, extra = "") {
+  return `<div class="lanehead"><h2>${esc(L.title)}</h2><span class="rule">${esc(L.rule)}</span>${extra}</div>`;
+}
+
+function renderList() {
+  const L = LANES[lane], v = $("view");
+  const items = mine(tasks).filter(t => t.lane === lane).sort((a,b) => (a.done - b.done) || (a.createdAt - b.createdAt));
+  const done = items.filter(t => t.done).length;
+  v.innerHTML = laneHead(L) + `<div class="progress"><i style="width:${items.length ? done/items.length*100 : 0}%"></i></div><ul id="list"></ul>`;
+  const ul = $("list");
+  for (const t of items) {
+    let meta = "", late = false;
+    if (t.done) { const d = new Date(t.doneAt || Date.now()); meta = `完了 ${md(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+    else if (lane === "h48") {
+      const left = t.createdAt + 48*3600000 - Date.now();
+      meta = left > 0 ? `期限まで ${fmtLeft(left)}` : `期限切れ ${fmtLeft(-left)}超過`; late = left <= 0;
+    } else meta = `${md(new Date(t.createdAt))} 追加`;
+    ul.appendChild(taskRow(t, {meta, late}));
+  }
+  if (!items.length) v.insertAdjacentHTML("beforeend", `<div class="empty">${db ? esc(L.title) + "はまだありません。下の入力欄から追加できます。" : ""}</div>`);
+  if (done) addArchiveBtn(v, [lane]);
+}
+
+function addArchiveBtn(v, lanes) {
+  const f = document.createElement("div"); f.className = "foot";
+  f.innerHTML = `<button class="btn ghost" type="button">完了を履歴へ移す</button>`;
+  f.firstChild.onclick = () => archiveDone(lanes);
+  v.appendChild(f);
+}
+
+function renderWeek() {
+  const L = LANES.week, v = $("view");
+  const days = weekDays(weekOffset);
+  const keys = days.map(ymd);
+  const todayKey = ymd(new Date());
+  if (!selDay || !keys.includes(selDay)) selDay = keys.includes(todayKey) ? todayKey : keys[0];
+  const label = weekOffset === 0 ? "今週" : weekOffset === 1 ? "来週" : weekOffset === -1 ? "先週" : `${weekOffset > 0 ? "+" : ""}${weekOffset}週`;
+  const nav = `<div class="weeknav"><button class="btn ghost" type="button" id="wPrev" aria-label="前の週">‹</button>
+    <span class="range">${label} ${md(days[0])}〜${md(days[6])}</span>
+    <button class="btn ghost" type="button" id="wNext" aria-label="次の週">›</button></div>`;
+  const weekTasks = mine(tasks).filter(t => t.lane === "week" && keys.includes(t.day));
+  const done = weekTasks.filter(t => t.done).length;
+  v.innerHTML = `<div class="lanehead"><h2>${esc(L.title)}</h2>${nav}</div>
+    <div class="progress"><i style="width:${weekTasks.length ? done/weekTasks.length*100 : 0}%"></i></div>
+    <div class="days" id="days"></div>`;
+  $("wPrev").onclick = () => { weekOffset--; render(); };
+  $("wNext").onclick = () => { weekOffset++; render(); };
+  const grid = $("days");
+  days.forEach((d, i) => {
+    const k = keys[i];
+    const items = weekTasks.filter(t => t.day === k).sort((a,b) => (a.done - b.done) || (a.createdAt - b.createdAt));
+    const cell = document.createElement("div");
+    cell.className = "day" + (k === selDay ? " sel" : "") + (k < todayKey ? " past" : "");
+    const wd = d.getDay();
+    cell.innerHTML = `<div class="dhead"><span class="d">${md(d)}</span><span class="w ${wd===6?"sat":wd===0?"sun":""}">${W[wd]}</span>
+      ${k === todayKey ? `<span class="badge">今日</span>` : items.length ? `<span class="cnt">${items.filter(t=>t.done).length}/${items.length}</span>` : ""}</div><ul></ul>`;
+    const ul = cell.querySelector("ul");
+    items.forEach(t => ul.appendChild(taskRow(t)));
+    if (!items.length) cell.insertAdjacentHTML("beforeend", `<span class="hint">${k === selDay ? "下の入力欄から追加" : "タップして追加"}</span>`);
+    cell.onclick = () => { selDay = k; render(); $("addInput").focus(); };
+    grid.appendChild(cell);
+  });
+  if (done) addArchiveBtn(v, ["week"]);
+}
+
+function historyMonths() {
+  const all = {};
+  for (const [m, items] of Object.entries(history)) all[m] = mine(items);
+  for (const t of mine(tasks).filter(t => t.done && t.doneAt)) {
+    const m = ym(new Date(t.doneAt));
+    (all[m] ||= []).push({text:t.text, lane:t.lane, amount:t.amount || "", day:t.day || "", doneAt:t.doneAt, pending:true});
+  }
+  return all;
+}
+
+function renderHistory() {
+  const L = LANES.hist, v = $("view");
+  const all = historyMonths();
+  const now = new Date();
+  const months = Array.from({length:12}, (_, i) => { const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1); return ym(d); });
+  const counts = months.map(m => {
+    const it = all[m] || [];
+    return {m, h48: it.filter(x=>x.lane==="h48").length, week: it.filter(x=>x.lane==="week").length, month: it.filter(x=>x.lane==="month").length, total: it.length};
+  });
+  const max = Math.max(1, ...counts.map(c => c.total));
+  const bars = counts.map(c => `<div class="bar"><span class="v">${c.total || ""}</span>
+    <div class="stack" style="height:${c.total ? Math.max(4, c.total/max*100) : 2}%">
+      ${["h48","week","month"].map(k => c[k] ? `<i style="flex:${c[k]};background:var(${LANES[k].color})"></i>` : "").join("")}
+    </div></div>`).join("");
+  const xs = months.map(m => `<span>${Number(m.slice(5))}月</span>`).join("");
+  v.innerHTML = laneHead(L) + `<div class="chart"><div class="bars">${bars}</div><div class="bars-x">${xs}</div>
+    <div class="legend">${["h48","week","month"].map(k => `<span><i style="background:var(${LANES[k].color})"></i>${LANES[k].name}</span>`).join("")}<span>直近12か月の完了数</span></div></div>`;
+  const keys = Object.keys(all).filter(m => all[m].length).sort().reverse();
+  if (!keys.length) { v.insertAdjacentHTML("beforeend", `<div class="empty">${db ? "まだ記録がありません。タスクを完了すると、ここに月ごとにたまっていきます。" : ""}</div>`); return; }
+  keys.forEach((m, idx) => {
+    const it = all[m].slice().sort((a,b) => a.doneAt - b.doneAt);
+    const det = document.createElement("details"); det.className = "month"; if (idx === 0) det.open = true;
+    const [y, mo] = m.split("-");
+    const chips = ["month","week","h48"].map(k => { const n = it.filter(x=>x.lane===k).length; return n ? `<span class="chip" style="background:var(${LANES[k].color})">${LANES[k].name} ${n}</span>` : ""; }).join("");
+    let body = "";
+    for (const k of ["month","week","h48"]) {
+      const g = it.filter(x => x.lane === k);
+      if (!g.length) continue;
+      body += `<h3>${esc(LANES[k].title.replace("やること","やったこと").replace("達成すること","達成したこと"))}</h3>` + g.map(x => {
+        const d = new Date(x.doneAt);
+        return `<div class="hitem"><span class="when">${md(d)}</span><span class="t">${esc(x.text)}</span>${x.amount ? `<span class="amt" style="--c:var(${LANES[k].color})">${esc(x.amount)}</span>` : ""}</div>`;
+      }).join("");
+    }
+    det.innerHTML = `<summary><span class="m">${y}年${Number(mo)}月</span><span class="total">${it.length}件</span><span class="chips">${chips}</span></summary><div class="hgroup">${body}</div>`;
+    v.appendChild(det);
+  });
+}
+
+function renderAddBar() {
+  $("addbar").hidden = lane === "hist";
+  const isWeek = lane === "week";
+  $("addDay").hidden = !isWeek;
+  $("addAmount").hidden = lane === "h48";
+  $("addInput").placeholder = `${LANES[lane].title}を追加`;
+  if (isWeek) {
+    const days = weekDays(weekOffset);
+    $("addDay").innerHTML = days.map(d => `<option value="${ymd(d)}" ${ymd(d) === selDay ? "selected" : ""}>${md(d)}(${W[d.getDay()]})</option>`).join("");
+  }
+  $("addAmount").placeholder = lane === "month" ? "目標量" : "時間・量";
+}
+
+function renderSpaces() {
+  if (!spaces.some(s => s.id === space)) space = spaces[0].id;
+  const cur = spaces.find(s => s.id === space);
+  $("spaceTitle").textContent = cur.name;
+  document.title = "3レーン・タスク";
+  const bar = $("spaces"); bar.innerHTML = "";
+  for (const s of spaces) {
+    const b = document.createElement("button");
+    b.className = "sp"; b.type = "button"; b.setAttribute("aria-pressed", s.id === space);
+    const open = tasks.filter(t => spaceOf(t) === s.id && !t.done).length;
+    b.innerHTML = `${esc(s.name)}<span class="n">${open}</span>`;
+    b.onclick = () => { space = s.id; try{localStorage.setItem("space", s.id)}catch(e){}; render(); };
+    bar.appendChild(b);
+  }
+  const e = document.createElement("button");
+  e.className = "sp edit"; e.type = "button"; e.textContent = editing ? "閉じる" : "用途を編集";
+  e.onclick = () => { editing = !editing; spaceMsg = ""; render(); };
+  bar.appendChild(e);
+
+  const ed = $("spedit");
+  ed.hidden = !editing;
+  if (!editing) return;
+  ed.innerHTML = `<h2>用途を編集</h2>`;
+  spaces.forEach((s, i) => {
+    const row = document.createElement("div"); row.className = "sprow";
+    row.innerHTML = `<input id="spname-${esc(s.id)}" maxlength="20" aria-label="用途の名前"><button class="btn ghost" type="button">削除</button>`;
+    const inp = row.querySelector("input"); inp.value = s.name;
+    inp.onchange = () => { const v = inp.value.trim(); if (v && v !== s.name) saveSpaces(spaces.map(x => x.id === s.id ? {...x, name:v} : x)); else inp.value = s.name; };
+    row.querySelector("button").onclick = () => {
+      const used = tasks.some(t => spaceOf(t) === s.id) || Object.values(history).some(items => items.some(x => spaceOf(x) === s.id));
+      if (spaces.length <= 1) spaceMsg = "用途は1つ以上必要です。";
+      else if (used) spaceMsg = `「${s.name}」にはタスクか履歴があるので削除できません。名前の変更はできます。`;
+      else { spaceMsg = ""; saveSpaces(spaces.filter(x => x.id !== s.id)); }
+      render();
+    };
+    ed.appendChild(row);
+  });
+  const add = document.createElement("form"); add.className = "sprow";
+  add.innerHTML = `<input id="spnew" maxlength="20" placeholder="新しい用途（例：勉強、副業）" aria-label="新しい用途の名前"><button class="btn" type="submit">追加</button>`;
+  add.onsubmit = ev => {
+    ev.preventDefault();
+    const v = add.querySelector("input").value.trim();
+    if (!v) return;
+    const id = "s" + Date.now().toString(36);
+    space = id; try{localStorage.setItem("space", id)}catch(e){}
+    saveSpaces([...spaces, {id, name:v}]);
+  };
+  ed.appendChild(add);
+  ed.insertAdjacentHTML("beforeend", `<p class="spnote">${esc(spaceMsg || "名前は入力欄を離れると保存されます。")}</p>`);
+}
+
+async function saveSpaces(list) {
+  spaces = list; render();
+  try { await db.doc("meta/spaces").set({list}); }
+  catch(e) { status("用途を保存できませんでした。もう一度試してください。"); }
+}
+
+function render() {
+  renderSpaces();
+  document.documentElement.style.setProperty("--c", `var(${LANES[lane].color})`);
+  renderTabs();
+  if (lane === "week") renderWeek();
+  else if (lane === "hist") renderHistory();
+  else renderList();
+  renderAddBar();
+  renderClock();
+}
+
+function status(msg){ $("status").textContent = msg; }
+async function save(id, patch) {
+  try { await db.collection("tasks").doc(id).update(patch); }
+  catch(e) { status("保存できませんでした。もう一度試してください。"); }
+}
+async function remove(id) {
+  try { await db.collection("tasks").doc(id).delete(); }
+  catch(e) { status("削除できませんでした。"); }
+}
+// 完了タスクを月ごとの履歴ドキュメント history/YYYY-MM に追記してから消す
+async function archiveDone(lanes, allSpaces = false) {
+  const done = (allSpaces ? tasks : mine(tasks)).filter(t => t.done && lanes.includes(t.lane));
+  const byMonth = {};
+  for (const t of done) (byMonth[ym(new Date(t.doneAt || Date.now()))] ||= []).push(t);
+  try {
+    for (const [m, list] of Object.entries(byMonth)) {
+      const ref = db.collection("history").doc(m);
+      const snap = await ref.get();
+      const items = snap.exists ? [...(snap.data().items || [])] : [];
+      for (const t of list) items.push({text:t.text, lane:t.lane, space:spaceOf(t), amount:t.amount || "", day:t.day || "", doneAt:t.doneAt || Date.now()});
+      await ref.set({month:m, items});
+      for (const t of list) await db.collection("tasks").doc(t.id).delete();
+    }
+    status("");
+  } catch(e) { status("履歴に移せませんでした。もう一度試してください。"); }
+}
+
+$("addDay").addEventListener("change", e => { selDay = e.target.value; render(); });
+$("addForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("addInput").value.trim();
+  const amount = $("addAmount").value.trim();
+  if (!text || !db || lane === "hist") return;
+  const doc = {text, lane, space, done:false, createdAt:Date.now(), doneAt:null};
+  if (lane !== "h48") doc.amount = amount;
+  if (lane === "week") doc.day = $("addDay").value;
+  $("addInput").value = ""; $("addAmount").value = "";
+  try { await db.collection("tasks").add(doc); }
+  catch(err) { $("addInput").value = text; $("addAmount").value = amount; status("追加できませんでした。もう一度試してください。"); }
+});
+$("doReview").onclick = async () => {
+  await archiveDone(["h48","week","month"], true);
+  try { await db.doc("meta/review").set({lastAt: Date.now()}); } catch(e) {}
+  lane = "week"; weekOffset = [5,6,0].includes(new Date().getDay()) ? 1 : 0; render();
+};
+
+render();
+setInterval(() => { renderClock(); if (lane === "h48" && !editing) render(); }, 60000);
+
+(async () => {
+  db = await window.claude?.use?.("db");
+  if (!db) { status("データを読み込めませんでした。claude.ai にサインインして開いてください。"); return; }
+  status("");
+  db.collection("tasks").onSnapshot(snap => {
+    // 曜日マス導入前の「今週」タスクは今日のマスに入れる
+    tasks = snap.docs.map(d => { const t = {id: d.id, ...d.data()}; if (t.lane === "week" && !t.day) t.day = ymd(new Date(t.createdAt || Date.now())); return t; });
+    render();
+  }, () => status("同期が切れました。ページを再読み込みしてください。"));
+  db.collection("history").onSnapshot(snap => {
+    history = {};
+    for (const d of snap.docs) history[d.id] = d.data().items || [];
+    render();
+  });
+  db.doc("meta/spaces").onSnapshot(d => {
+    if (!d.exists) { db.doc("meta/spaces").set({list: DEFAULT_SPACES}).catch(() => {}); return; }
+    const list = d.data().list;
+    if (Array.isArray(list) && list.length) { spaces = list; render(); }
+  });
+  db.doc("meta/review").onSnapshot(d => {
+    if (!d.exists) { lastReview = Date.now(); db.doc("meta/review").set({lastAt: lastReview}).catch(() => {}); }
+    else lastReview = d.data().lastAt;
+    renderClock();
+  });
+})();
+</script>
