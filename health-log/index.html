@@ -724,6 +724,9 @@ function itemEditor(s) {
   return `<div class="items-ed">${rows || `<div class="empty-card">品目がありません。下のボタンで追加できます。</div>`}</div>
     <div class="chips"><button type="button" class="chip" data-addrow>＋ 品目を追加</button>
       ${s.items.length ? `<button type="button" class="chip" data-mul="0.5">全部 ×0.5（半分残した）</button><button type="button" class="chip" data-mul="1.5">全部 ×1.5（大盛り）</button>` : ""}</div>
+    ${sample ? `<div class="field"><label for="addDesc">文章で品目を追加</label>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input class="in" id="addDesc" value="${esc(s.addDesc || "")}" placeholder="例: お吸い物一杯" enterkeyhint="done"><button type="button" class="btn ghost" data-adddesc ${s.busy ? "disabled" : ""}>追加</button></div>
+      <div class="hint">写真に写らなかったものや飲み物を、Claude が推定して足します</div></div>` : ""}
     <div class="tot" id="tot">${totHtml(t)}</div>`;
 }
 const totHtml = (t) => `合計 <b>${t.kcal.toLocaleString()} kcal</b> たんぱく質 <b>${t.protein}g</b> 脂質 <b>${t.fat}g</b> 炭水化物 <b>${t.carbs}g</b> 塩分 <b>${t.salt}g</b>`;
@@ -753,6 +756,16 @@ function bindItemEditor(root, s) {
     });
     drawSheet();
   });
+  const ad = root.querySelector("#addDesc");
+  const addByText = () => {
+    const txt = (s.addDesc || "").trim();
+    if (!txt) { toast("追加する食べものを書いてください"); return; }
+    s.addDesc = "";
+    analyze(s, `${PROMPT_HEAD}\n\n追加する食べもの（本人のメモ）: ${txt}`, { modelTier: "quick", append: true });
+  };
+  ad?.addEventListener("input", () => (s.addDesc = ad.value));
+  ad?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); addByText(); } });
+  root.querySelector("[data-adddesc]")?.addEventListener("click", addByText);
   root.querySelectorAll("[data-slot]").forEach((b) => b.onclick = () => { s.slot = b.dataset.slot; drawSheet(); });
   root.querySelector("#mTime")?.addEventListener("change", (e) => (s.time = e.target.value));
 }
@@ -776,23 +789,30 @@ const PROMPT_HEAD = `あなたは日本の管理栄養士です。食事の品�
 - 日本の一般的な1人前の分量と、日本食品標準成分表の値を基準にする
 - 品目名は日本語で短く（例: 白ごはん、豚の生姜焼き、味噌汁）
 - 調味料・ドレッシング・揚げ油も含めて推定する
+- 本人が量を書いている場合はその量に合わせる（例: 小ぶりな茶碗一杯≒ごはん120g、大盛り≒250g）。発酵玄米・雑穀米など細かい種類もそのものの値で推定する
 - 数値は1人分。たんぱく質・脂質・炭水化物・食物繊維・塩分はグラム、小数第1位まで
 返答はJSONのみ。形式:
 {"items":[{"name":"白ごはん","amount":"茶碗1杯(約150g)","kcal":234,"protein":3.8,"fat":0.5,"carbs":55.7,"fiber":0.5,"salt":0}],"confidence":"high|medium|low","note":"推定のぶれやすい点を日本語1文で"}
 食べ物が写っていない・判断できない場合は {"items":[],"confidence":"low","note":"理由"} を返す。`;
 
-async function analyze(s, input, opts) {
+async function analyze(s, input, { append = false, ...opts } = {}) {
   if (!sample) { s.error = "この画面では Claude の推定が使えません。手入力で記録できます。"; drawSheet(); return; }
-  s.busy = true; s.error = ""; s.ctl = new AbortController(); drawSheet();
+  s.busy = true; s.busyText = append ? "Claude が追加分を推定しています…" : ""; s.error = ""; s.ctl = new AbortController(); drawSheet();
   try {
     const r = await sample.json(input, { ...opts, signal: s.ctl.signal });
     if (sheet !== s) return;
     const items = Array.isArray(r?.items) ? r.items : [];
-    s.items = items.map((it) => {
+    const got = items.map((it) => {
       const o = { name: String(it?.name ?? ""), amount: String(it?.amount ?? "") };
       for (const n of NUTR) o[n] = n === "kcal" ? Math.round(num(it?.[n])) : round1(num(it?.[n]));
       return o;
     });
+    if (append) {
+      if (!got.length) s.error = "追加する品目を読み取れませんでした。書き方を変えてお試しください。";
+      s.items = [...s.items, ...got];
+      return;
+    }
+    s.items = got;
     s.note = [r?.confidence ? `確からしさ: ${{ high: "高", medium: "中", low: "低" }[r.confidence] || r.confidence}` : "", r?.note || ""].filter(Boolean).join(" ・ ");
     s.analyzed = true;
     if (!s.items.length) s.error = r?.note ? `品目を読み取れませんでした: ${r.note}` : "品目を読み取れませんでした。別の写真か、手入力でどうぞ。";
@@ -832,7 +852,7 @@ document.addEventListener("paste", (e) => {
   usePhoto(sheet, f);
 });
 
-const statusHtml = (s, text) => s.busy ? `<div class="status"><span class="spin"></span>${text}<button class="link" data-stop>中止</button></div>` : "";
+const statusHtml = (s, text) => s.busy ? `<div class="status"><span class="spin"></span>${s.busyText || text}<button class="link" data-stop>中止</button></div>` : "";
 
 const SHEETS = {
   photo: {
@@ -865,7 +885,7 @@ const SHEETS = {
     title: (s) => s.editingId ? "食事を編集" : "文字で食事を記録",
     body: (s) => `
       ${s.editingId ? "" : `<div class="field"><label for="descIn">食べたもの</label>
-        <textarea class="in" id="descIn" rows="2" placeholder="例: 牛丼並盛、味噌汁、サラダ">${esc(s.desc || "")}</textarea>
+        <textarea class="in" id="descIn" rows="3" placeholder="例: 発酵玄米ご飯を小ぶりな茶碗に一杯、お吸い物一杯、焼き鮭半切れ">${esc(s.desc || "")}</textarea>
         <div class="row2"><button class="btn ghost" type="button" data-est ${s.busy ? "disabled" : ""}>Claude に推定してもらう</button><button class="btn ghost" type="button" data-blank>自分で数値を入れる</button></div></div>`}
       ${statusHtml(s, "Claude がカロリーを推定しています…")}
       ${s.error ? `<div class="banner warn">${esc(s.error)}</div>` : ""}
