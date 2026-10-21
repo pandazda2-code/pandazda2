@@ -815,27 +815,47 @@ async function analyze(s, input, opts) {
   }
 }
 
+function usePhoto(s, f) {
+  if (!f || s.busy) return;
+  if (!f.type.startsWith("image/")) { toast("画像ファイルを選んでください"); return; }
+  if (s.photoUrl) URL.revokeObjectURL(s.photoUrl);
+  s.file = f; s.photoUrl = URL.createObjectURL(f); s.items = []; s.analyzed = false;
+  analyze(s, PROMPT_HEAD + "\n\n写真に写っている食事を推定してください。", { images: [f] });
+}
+// pasting an image anywhere opens the photo sheet (or replaces its photo)
+document.addEventListener("paste", (e) => {
+  const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+  if (!f) return;
+  if (sheet && sheet.kind !== "photo") return;
+  e.preventDefault();
+  if (!sheet) { state.tab = "today"; render(); open("photo"); }
+  usePhoto(sheet, f);
+});
+
 const statusHtml = (s, text) => s.busy ? `<div class="status"><span class="spin"></span>${text}<button class="link" data-stop>中止</button></div>` : "";
 
 const SHEETS = {
   photo: {
     title: () => "写真で食事を記録",
     body: (s) => `
-      <label class="photo" for="photoIn">
-        ${s.photoUrl ? `<img src="${s.photoUrl}" alt="選んだ食事の写真">` : `<div style="font-weight:700">食事を撮る・写真を選ぶ</div><div class="note">写真は推定にだけ使い、保存しません</div>`}
-      </label>
-      <input id="photoIn" type="file" accept="image/*" capture="environment" hidden>
+      <div class="photo" id="dropZone">
+        ${s.photoUrl ? `<img src="${s.photoUrl}" alt="選んだ食事の写真">` : `<div style="font-weight:700">食事の写真を用意してください</div><div class="note">撮影・アルバムから選ぶ・貼り付け（コピーした画像）・ドラッグ＆ドロップに対応。写真は推定にだけ使い、保存しません</div>`}
+        <div class="row2" style="width:100%">
+          <label class="btn" for="camIn" style="text-align:center">撮影する</label>
+          <label class="btn ghost" for="libIn" style="text-align:center">写真を選ぶ</label>
+        </div>
+      </div>
+      <input id="camIn" type="file" accept="image/*" capture="environment" hidden>
+      <input id="libIn" type="file" accept="image/*" hidden>
       ${statusHtml(s, "Claude が写真から品目を推定しています…")}
       ${s.error ? `<div class="banner warn">${esc(s.error)}</div>` : ""}
       ${s.analyzed || s.items.length ? `${slotTimeFields(s)}${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}${itemEditor(s)}
         <div class="row2"><button class="btn ghost" type="button" data-retry ${s.busy ? "disabled" : ""}>推定し直す</button><button class="btn" type="button" data-save ${s.busy ? "disabled" : ""}>保存</button></div>` : ""}`,
     bind: (root, s) => {
-      root.querySelector("#photoIn").onchange = (e) => {
-        const f = e.target.files?.[0]; if (!f) return;
-        if (s.photoUrl) URL.revokeObjectURL(s.photoUrl);
-        s.file = f; s.photoUrl = URL.createObjectURL(f); s.items = []; s.analyzed = false;
-        analyze(s, PROMPT_HEAD + "\n\n写真に写っている食事を推定してください。", { images: [f] });
-      };
+      for (const id of ["#camIn", "#libIn"]) root.querySelector(id).onchange = (e) => usePhoto(s, e.target.files?.[0]);
+      const dz = root.querySelector("#dropZone");
+      dz.addEventListener("dragover", (e) => e.preventDefault());
+      dz.addEventListener("drop", (e) => { e.preventDefault(); usePhoto(s, [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"))); });
       root.querySelector("[data-retry]")?.addEventListener("click", () => s.file && analyze(s, PROMPT_HEAD + "\n\n写真に写っている食事を推定してください。", { images: [s.file], cache: false }));
       root.querySelector("[data-save]")?.addEventListener("click", () => saveMeal(s));
       bindItemEditor(root, s);
