@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1b1a2e">
+<meta name="robots" content="noindex,nofollow">
+<title>内なる点検</title>
+<style>
+:root{
+  --bg:#f6f4ef; --card:#ffffff; --ink:#2a2838; --muted:#77738a; --line:#e6e2d8;
+  --accent:#b8892b; --accent-ink:#ffffff; --soft:#f3ecdc; --silver:#c9cfdb;
+  --danger:#b4443c; --radius:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#15141f; --card:#1f1e2d; --ink:#ece9f4; --muted:#9c98b0; --line:#2f2d42;
+    --accent:#d8ae55; --accent-ink:#1b1a2e; --soft:#2a2638; --silver:#8f97a8; --danger:#e07a70;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.6;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}
+h2{font-size:15px;margin:0 0 8px}
+.sub{color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.step-no{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--soft);color:var(--accent);font-size:12px;font-weight:700;margin-right:6px}
+label.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}
+.scale{display:flex;gap:6px}
+.scale button{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:15px;cursor:pointer}
+.scale button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:6px 12px;font-size:14px;cursor:pointer}
+.chip.on{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+textarea,input[type=text],input[type=number],select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:76px;resize:vertical}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:12px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.danger{background:transparent;color:var(--danger);border:1px solid var(--danger)}
+.btn.block{width:100%}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.toggle{display:flex;align-items:center;gap:8px;font-weight:600}
+.toggle input{width:20px;height:20px;accent-color:var(--accent)}
+.hidden{display:none!important}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:10}
+nav button{flex:1;background:none;border:0;color:var(--muted);font:inherit;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:4px}
+nav button .ic{font-size:20px;line-height:1}
+nav button.on{color:var(--accent);font-weight:700}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:calc(100% - 32px);width:max-content;text-align:center;opacity:0;transition:opacity .3s;pointer-events:none;z-index:30}
+.toast.show{opacity:1}
+/* records */
+.entry{border-top:1px solid var(--line);padding:12px 0}
+.entry:first-child{border-top:0}
+.entry .meta{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.entry .scores{font-size:13px;color:var(--muted)}
+.entry p{margin:4px 0;white-space:pre-wrap}
+.entry .k{font-size:12px;color:var(--muted);font-weight:700;margin-top:6px}
+.tag{display:inline-block;font-size:12px;background:var(--soft);color:var(--accent);border-radius:999px;padding:1px 8px;margin:2px 4px 0 0}
+.linkbtn{background:none;border:0;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;padding:2px 4px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px}
+.cal .d{aspect-ratio:1;border-radius:8px;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;position:relative;color:var(--muted)}
+.cal .d.has{color:var(--ink);font-weight:600}
+.cal .d.med::after{content:"";position:absolute;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.cal .wd{font-size:11px;text-align:center;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--bg);border-radius:10px;padding:10px;text-align:center}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:12px;color:var(--muted)}
+/* meditation */
+#medStage{position:fixed;inset:0;z-index:20;background:#07060d;color:#efe9da;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;user-select:none}
+#orb{width:46vmin;height:46vmin;border-radius:50%;transition:all 4s ease}
+#medText{min-height:5.5em;margin-top:28px;font-size:19px;line-height:1.8;max-width:520px;transition:opacity 1.2s}
+#medInfo{position:absolute;top:calc(16px + env(safe-area-inset-top));left:0;right:0;font-size:13px;opacity:.6}
+#medCtl{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom));display:flex;gap:10px}
+#medCtl button{background:rgba(255,255,255,.08);color:#efe9da;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:10px 16px;font:inherit;font-size:14px;cursor:pointer}
+#medProg{position:absolute;top:0;left:0;height:3px;background:#d8ae55;transition:width 1s linear}
+</style>
+</head>
+<body>
+<main>
+
+<!-- ========== 点検 ========== -->
+<section id="v-check">
+  <h1>今日の点検 <span class="sub" id="todayLabel"></span></h1>
+  <div id="editBanner" class="card hidden" style="border-color:var(--accent)">
+    <span id="editLabel"></span>を編集中 <button class="linkbtn" id="cancelEdit">やめる</button>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">1</span>いまの状態</h2>
+    <div id="scales"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">2</span>感じている感情</h2>
+    <div class="chips" id="emoChips"></div>
+    <input type="text" id="emoOther" placeholder="その他（読点で区切る）" style="margin-top:8px">
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">3</span>気付き</h2>
+    <textarea id="insight" placeholder="何に気付いた？"></textarea>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">4</span>原因</h2>
+    <div class="chips" id="causeChips"></div>
+    <textarea id="cause" placeholder="なぜそうなったと思う？" style="margin-top:8px"></textarea>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">5</span>対処</h2>
+    <textarea id="action" placeholder="どう向き合った？ これからどうする？"></textarea>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">6</span>光の瞑想</h2>
+    <label class="toggle"><input type="checkbox" id="medDone"> 実施した</label>
+    <div id="medFields" class="hidden">
+      <label class="row">時間（分）<input type="number" id="medMin" min="0" max="180" style="width:90px"></label>
+      <label class="row">前の状態 <span class="scale" data-key="medBefore"></span></label>
+      <label class="row">後の状態 <span class="scale" data-key="medAfter"></span></label>
+      <textarea id="medNote" placeholder="瞑想中・後の感覚"></textarea>
+    </div>
+    <button class="btn ghost block" id="goMed" style="margin-top:10px">✦ いま瞑想する</button>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-no">7</span>自分への一言</h2>
+    <input type="text" id="word" placeholder="（任意）">
+  </div>
+
+  <button class="btn block" id="saveBtn">記録する</button>
+</section>
+
+<!-- ========== 瞑想 ========== -->
+<section id="v-med" class="hidden">
+  <h1>光の瞑想</h1>
+  <div class="card">
+    <p class="sub" id="guideState"></p>
+    <label class="row">時間
+      <select id="medDur" style="width:auto">
+        <option value="5">5分</option><option value="10" selected>10分</option>
+        <option value="15">15分</option><option value="20">20分</option><option value="30">30分</option>
+      </select>
+    </label>
+    <label class="row">進め方
+      <select id="medMode" style="width:auto">
+        <option value="auto">自動で進む</option>
+        <option value="tap">タップで進む</option>
+      </select>
+    </label>
+    <label class="row">ステップごとの鈴の音 <input type="checkbox" id="stepBell" style="width:20px;height:20px;accent-color:var(--accent)"></label>
+    <label class="row">始める前の状態 <span class="scale" data-key="preBefore"></span></label>
+    <button class="btn block" id="startMed">始める</button>
+  </div>
+  <p class="sub">瞑想中は画面が消えないようにします（対応している端末のみ）。</p>
+</section>
+
+<!-- ========== 記録 ========== -->
+<section id="v-log" class="hidden">
+  <h1>記録</h1>
+  <div class="card">
+    <div class="stats">
+      <div class="stat"><b id="stStreak">0</b><span>瞑想の連続日数</span></div>
+      <div class="stat"><b id="stMonth">0</b><span>今月の瞑想日数</span></div>
+      <div class="stat"><b id="stAvg">–</b><span>直近7日の心の平均</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="meta" style="display:flex;justify-content:space-between;align-items:center">
+      <button class="linkbtn" id="calPrev">‹ 前月</button>
+      <h2 id="calTitle" style="margin:0"></h2>
+      <button class="linkbtn" id="calNext">次月 ›</button>
+    </div>
+    <div class="cal" id="cal"></div>
+    <p class="sub" style="margin:8px 0 0">数字の濃さは心の状態、点は瞑想した日。日付をタップするとその日の記録に絞り込みます。</p>
+  </div>
+  <div class="card" id="topCauses"></div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 id="listTitle" style="margin:0">すべての記録</h2>
+      <button class="linkbtn hidden" id="clearFilter">すべて表示</button>
+    </div>
+    <div id="list"></div>
+  </div>
+</section>
+
+<!-- ========== 設定 ========== -->
+<section id="v-set" class="hidden">
+  <h1>設定</h1>
+  <div class="card">
+    <h2>瞑想ガイド</h2>
+    <p class="sub">1行に1ステップずつ入力します。この内容はこの端末の中にだけ保存され、アプリのファイルには含まれません。</p>
+    <textarea id="guideText" style="min-height:220px" placeholder="1行目のステップ&#10;2行目のステップ&#10;…"></textarea>
+    <button class="btn" id="saveGuide" style="margin-top:8px">ガイドを保存</button>
+  </div>
+  <div class="card">
+    <h2>選択肢の編集</h2>
+    <p class="sub">読点（、）で区切ります。</p>
+    <label>感情<textarea id="optEmo"></textarea></label>
+    <label>原因のタグ<textarea id="optCause"></textarea></label>
+    <button class="btn" id="saveOpts" style="margin-top:8px">選択肢を保存</button>
+  </div>
+  <div class="card">
+    <h2>バックアップ</h2>
+    <p class="sub">記録はこの端末のブラウザに保存されています。消えないように時々書き出してください。書き出したファイルには瞑想ガイドも含まれるので、扱いに気を付けてください。</p>
+    <div class="btns">
+      <button class="btn ghost" id="exportBtn">書き出す</button>
+      <button class="btn ghost" id="importBtn">読み込む</button>
+      <input type="file" id="importFile" accept="application/json" class="hidden">
+    </div>
+  </div>
+  <div class="card">
+    <h2>データの削除</h2>
+    <button class="btn danger" id="wipeBtn">すべての記録を削除</button>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-v="check" class="on"><span class="ic">◎</span>点検</button>
+  <button data-v="med"><span class="ic">✦</span>瞑想</button>
+  <button data-v="log"><span class="ic">▤</span>記録</button>
+  <button data-v="set"><span class="ic">⚙</span>設定</button>
+</nav>
+
+<div id="medStage" class="hidden">
+  <div id="medProg"></div>
+  <div id="medInfo"></div>
+  <div id="orb"></div>
+  <div id="medText"></div>
+  <div id="medEnd" class="hidden" style="margin-top:20px">
+    <p style="margin:0 0 8px">終わった後の状態</p>
+    <div class="scale" data-key="postAfter" style="justify-content:center"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center">
+      <button class="btn" id="medToRecord">記録に入れる</button>
+      <button class="btn ghost" id="medClose" style="color:#efe9da;border-color:rgba(255,255,255,.3)">閉じる</button>
+    </div>
+  </div>
+  <div id="medCtl">
+    <button id="medPause">一時停止</button>
+    <button id="medNext">次へ</button>
+    <button id="medStop">終える</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+const KEY = 'innerCheck.v1';
+const DEF_EMO = ['穏やか','感謝','喜び','安心','満たされ','不安','焦り','怒り','悲しみ','疲れ','もやもや','孤独'];
+const DEF_CAUSE = ['仕事','人間関係','家族','体調','睡眠','お金','将来','自分自身','環境'];
+const SCALES = [['mind','心'],['body','体'],['energy','エネルギー']];
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+// ---------- storage ----------
+function load(){
+  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d && Array.isArray(d.entries)) return d; }catch(e){}
+  return {entries:[], settings:{}, draft:null};
+}
+let db = load();
+db.settings = Object.assign({guide:[], emotions:DEF_EMO, causes:DEF_CAUSE, medDur:'10', medMode:'auto', stepBell:false}, db.settings);
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+  catch(e){ toast('保存できませんでした（ブラウザの保存領域を確認してください）'); return false; }
+}
+
+const pad = n => String(n).padStart(2,'0');
+const dateKey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const WD = ['日','月','火','水','木','金','土'];
+const fmtDate = k => { const [y,m,d] = k.split('-').map(Number); return `${m}/${d}（${WD[new Date(y,m-1,d).getDay()]}）`; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const splitList = s => s.split(/[、,，\n]/).map(x => x.trim()).filter(Boolean);
+
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
+
+// ---------- 1-5 scale widgets ----------
+const scaleVal = {};
+function buildScale(el, key){
+  el.innerHTML = '';
+  for(let i=1;i<=5;i++){
+    const b = document.createElement('button'); b.type='button'; b.textContent=i;
+    b.onclick = e => { e.preventDefault(); scaleVal[key] = scaleVal[key]===i ? null : i; paintScale(key); onDraftChange(); };
+    el.appendChild(b);
+  }
+  el.dataset.key = key;
+}
+function paintScale(key){
+  $$(`.scale[data-key="${key}"] button`).forEach((b,i) => b.classList.toggle('on', scaleVal[key]===i+1));
+}
+$('#scales').innerHTML = SCALES.map(([k,l]) => `<label class="row">${l}<span class="scale" data-key="${k}"></span></label>`).join('')
+  + '<p class="sub" style="margin:4px 0 0">1＝重い・乱れている　5＝軽い・整っている</p>';
+$$('.scale').forEach(el => buildScale(el, el.dataset.key));
+
+// ---------- chips ----------
+const picked = {emo:new Set(), cause:new Set()};
+function buildChips(){
+  const mk = (box, list, set) => {
+    box.innerHTML = '';
+    list.forEach(name => {
+      const c = document.createElement('button'); c.type='button'; c.className='chip'+(set.has(name)?' on':''); c.textContent=name;
+      c.onclick = () => { set.has(name)?set.delete(name):set.add(name); c.classList.toggle('on'); onDraftChange(); };
+      box.appendChild(c);
+    });
+  };
+  mk($('#emoChips'), db.settings.emotions, picked.emo);
+  mk($('#causeChips'), db.settings.causes, picked.cause);
+}
+
+// ---------- form ----------
+let editingId = null;
+const TEXT_FIELDS = ['insight','cause','action','medNote','word','medMin','emoOther'];
+
+function readForm(){
+  const emotions = [...picked.emo, ...splitList($('#emoOther').value)];
+  const done = $('#medDone').checked;
+  return {
+    mind:scaleVal.mind||null, body:scaleVal.body||null, energy:scaleVal.energy||null,
+    emotions:[...new Set(emotions)],
+    insight:$('#insight').value.trim(),
+    causeTags:[...picked.cause], cause:$('#cause').value.trim(),
+    action:$('#action').value.trim(),
+    med:{done, min:done && $('#medMin').value ? Number($('#medMin').value) : null,
+         before:done?scaleVal.medBefore||null:null, after:done?scaleVal.medAfter||null:null,
+         note:done?$('#medNote').value.trim():''},
+    word:$('#word').value.trim(),
+  };
+}
+function fillForm(e){
+  e = e || {};
+  ['mind','body','energy'].forEach(k => scaleVal[k] = e[k]||null);
+  const m = e.med || {};
+  scaleVal.medBefore = m.before||null; scaleVal.medAfter = m.after||null;
+  Object.keys(scaleVal).forEach(paintScale);
+  const known = new Set(db.settings.emotions);
+  picked.emo = new Set((e.emotions||[]).filter(x => known.has(x)));
+  $('#emoOther').value = (e.emotions||[]).filter(x => !known.has(x)).join('、');
+  picked.cause = new Set(e.causeTags||[]);
+  buildChips();
+  $('#insight').value = e.insight||''; $('#cause').value = e.cause||''; $('#action').value = e.action||'';
+  $('#word').value = e.word||'';
+  $('#medDone').checked = !!m.done; $('#medMin').value = m.min ?? ''; $('#medNote').value = m.note||'';
+  $('#medFields').classList.toggle('hidden', !m.done);
+}
+function isEmpty(f){
+  return !f.mind && !f.body && !f.energy && !f.emotions.length && !f.insight && !f.cause && !f.causeTags.length && !f.action && !f.med.done && !f.word;
+}
+function onDraftChange(){
+  if(editingId) return;
+  db.draft = readForm(); save();
+}
+TEXT_FIELDS.forEach(id => $('#'+id).addEventListener('input', onDraftChange));
+$('#medDone').addEventListener('change', () => { $('#medFields').classList.toggle('hidden', !$('#medDone').checked); onDraftChange(); });
+
+$('#saveBtn').onclick = () => {
+  const f = readForm();
+  if(isEmpty(f)){ toast('何か一つ入力してください'); return; }
+  if(editingId){
+    const e = db.entries.find(x => x.id===editingId);
+    Object.assign(e, f, {updated:new Date().toISOString()});
+    editingId = null; $('#editBanner').classList.add('hidden');
+    if(save()) toast('更新しました');
+  }else{
+    const now = new Date();
+    db.entries.push(Object.assign({id:now.getTime().toString(36)+Math.random().toString(36).slice(2,6), ts:now.toISOString(), date:dateKey(now)}, f));
+    db.draft = null;
+    if(save()) toast('記録しました。おつかれさまでした');
+  }
+  fillForm(db.draft); window.scrollTo(0,0);
+};
+$('#cancelEdit').onclick = () => { editingId=null; $('#editBanner').classList.add('hidden'); fillForm(db.draft); };
+
+function startEdit(id){
+  const e = db.entries.find(x => x.id===id); if(!e) return;
+  editingId = id; fillForm(e);
+  $('#editLabel').textContent = `${fmtDate(e.date)} ${new Date(e.ts).toTimeString().slice(0,5)} の記録`;
+  $('#editBanner').classList.remove('hidden');
+  show('check'); window.scrollTo(0,0);
+}
+
+// ---------- navigation ----------
+function show(v){
+  $$('main > section').forEach(s => s.classList.toggle('hidden', s.id !== 'v-'+v));
+  $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.v===v));
+  if(v==='log') renderLog();
+  if(v==='med') renderMedSetup();
+  if(v==='set') renderSettings();
+}
+$$('nav button').forEach(b => b.onclick = () => { show(b.dataset.v); window.scrollTo(0,0); });
+$('#goMed').onclick = () => { show('med'); window.scrollTo(0,0); };
+
+// ---------- records ----------
+let calMonth = new Date(); calMonth.setDate(1);
+let filterDate = null;
+
+function medDays(){ return new Set(db.entries.filter(e => e.med && e.med.done).map(e => e.date)); }
+function renderLog(){
+  const md = medDays();
+  // streak (today or yesterday counts as continuing)
+  let streak = 0; const d = new Date();
+  if(!md.has(dateKey(d))) d.setDate(d.getDate()-1);
+  while(md.has(dateKey(d))){ streak++; d.setDate(d.getDate()-1); }
+  $('#stStreak').textContent = streak;
+  const ym = dateKey(new Date()).slice(0,7);
+  $('#stMonth').textContent = [...md].filter(k => k.startsWith(ym)).length;
+  const since = new Date(); since.setDate(since.getDate()-6); const sk = dateKey(since);
+  const recent = db.entries.filter(e => e.date >= sk && e.mind);
+  $('#stAvg').textContent = recent.length ? (recent.reduce((a,e) => a+e.mind,0)/recent.length).toFixed(1) : '–';
+
+  // calendar
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  $('#calTitle').textContent = `${y}年${m+1}月`;
+  const byDay = {};
+  db.entries.forEach(e => (byDay[e.date] ||= []).push(e));
+  let h = WD.map(w => `<div class="wd">${w}</div>`).join('');
+  const first = new Date(y,m,1).getDay(), days = new Date(y,m+1,0).getDate();
+  for(let i=0;i<first;i++) h += '<div></div>';
+  for(let i=1;i<=days;i++){
+    const k = `${y}-${pad(m+1)}-${pad(i)}`, list = byDay[k];
+    let style = '';
+    if(list){
+      const ms = list.filter(e => e.mind).map(e => e.mind);
+      if(ms.length){ const avg = ms.reduce((a,b)=>a+b,0)/ms.length; style = `background:color-mix(in srgb, var(--accent) ${Math.round(avg*18)}%, var(--bg))`; }
+    }
+    const sel = filterDate===k ? ';outline:2px solid var(--ink)' : '';
+    h += `<div class="d${list?' has':''}${md.has(k)?' med':''}" data-k="${k}" style="${style}${sel}">${i}</div>`;
+  }
+  $('#cal').innerHTML = h;
+  $$('#cal .d.has').forEach(el => el.onclick = () => { filterDate = filterDate===el.dataset.k ? null : el.dataset.k; renderLog(); });
+
+  // top causes (last 30 days)
+  const s30 = new Date(); s30.setDate(s30.getDate()-29); const s30k = dateKey(s30);
+  const cnt = {};
+  db.entries.filter(e => e.date >= s30k).forEach(e => (e.causeTags||[]).forEach(t => cnt[t] = (cnt[t]||0)+1));
+  const top = Object.entries(cnt).sort((a,b) => b[1]-a[1]).slice(0,5);
+  $('#topCauses').innerHTML = '<h2>直近30日によく出た原因</h2>' + (top.length
+    ? top.map(([t,n]) => `<span class="tag">${esc(t)} ${n}</span>`).join('')
+    : '<p class="sub" style="margin:0">まだありません</p>');
+
+  // list
+  const rows = db.entries.filter(e => !filterDate || e.date===filterDate).sort((a,b) => b.ts.localeCompare(a.ts));
+  $('#listTitle').textContent = filterDate ? `${fmtDate(filterDate)}の記録` : 'すべての記録';
+  $('#clearFilter').classList.toggle('hidden', !filterDate);
+  $('#list').innerHTML = rows.length ? rows.map(entryHtml).join('') : '<p class="sub">まだ記録がありません</p>';
+  $$('#list [data-edit]').forEach(b => b.onclick = () => startEdit(b.dataset.edit));
+  $$('#list [data-del]').forEach(b => b.onclick = () => {
+    if(!confirm('この記録を削除しますか？')) return;
+    db.entries = db.entries.filter(e => e.id !== b.dataset.del); save(); renderLog();
+  });
+}
+function entryHtml(e){
+  const sc = SCALES.map(([k,l]) => e[k] ? `${l}${e[k]}` : '').filter(Boolean).join('・');
+  const m = e.med || {};
+  const sec = (k, v) => v ? `<div class="k">${k}</div><p>${esc(v)}</p>` : '';
+  let medLine = '';
+  if(m.done){
+    const parts = [m.min ? `${m.min}分` : '', (m.before||m.after) ? `${m.before??'–'} → ${m.after??'–'}` : ''].filter(Boolean).join('　');
+    medLine = `<div class="k">✦ 光の瞑想</div><p>${esc(parts||'実施')}${m.note ? '\n'+esc(m.note) : ''}</p>`;
+  }
+  return `<div class="entry">
+    <div class="meta"><b>${fmtDate(e.date)} <span class="sub">${new Date(e.ts).toTimeString().slice(0,5)}</span></b>
+      <span><button class="linkbtn" data-edit="${e.id}">編集</button><button class="linkbtn" data-del="${e.id}" style="color:var(--danger)">削除</button></span></div>
+    ${sc ? `<div class="scores">${sc}</div>` : ''}
+    ${(e.emotions||[]).map(x => `<span class="tag">${esc(x)}</span>`).join('')}
+    ${sec('気付き', e.insight)}
+    ${(e.causeTags||[]).length || e.cause ? `<div class="k">原因</div>${(e.causeTags||[]).map(x => `<span class="tag">${esc(x)}</span>`).join('')}${e.cause ? `<p>${esc(e.cause)}</p>` : ''}` : ''}
+    ${sec('対処', e.action)}
+    ${medLine}
+    ${e.word ? `<p style="margin-top:8px">「${esc(e.word)}」</p>` : ''}
+  </div>`;
+}
+$('#calPrev').onclick = () => { calMonth.setMonth(calMonth.getMonth()-1); renderLog(); };
+$('#calNext').onclick = () => { calMonth.setMonth(calMonth.getMonth()+1); renderLog(); };
+$('#clearFilter').onclick = () => { filterDate = null; renderLog(); };
+
+// ---------- settings ----------
+function renderSettings(){
+  $('#guideText').value = db.settings.guide.join('\n');
+  $('#optEmo').value = db.settings.emotions.join('、');
+  $('#optCause').value = db.settings.causes.join('、');
+}
+$('#saveGuide').onclick = () => {
+  db.settings.guide = $('#guideText').value.split('\n').map(s => s.replace(/^\s*\d+[.．、)]\s*/, '').trim()).filter(Boolean);
+  if(save()) toast(`ガイドを保存しました（${db.settings.guide.length}ステップ）`);
+};
+$('#saveOpts').onclick = () => {
+  const e = splitList($('#optEmo').value), c = splitList($('#optCause').value);
+  if(e.length) db.settings.emotions = e;
+  if(c.length) db.settings.causes = c;
+  if(save()){ buildChips(); toast('保存しました'); }
+};
+$('#exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify({app:'inner-check', version:1, exported:new Date().toISOString(), entries:db.entries, settings:db.settings}, null, 2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `inner-check-${dateKey(new Date())}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$('#importBtn').onclick = () => $('#importFile').click();
+$('#importFile').onchange = async ev => {
+  const file = ev.target.files[0]; if(!file) return;
+  try{
+    const d = JSON.parse(await file.text());
+    if(!Array.isArray(d.entries)) throw 0;
+    const ids = new Set(db.entries.map(e => e.id));
+    const add = d.entries.filter(e => e && e.id && !ids.has(e.id));
+    db.entries.push(...add);
+    if(d.settings) db.settings = Object.assign(db.settings, d.settings);
+    if(save()){ buildChips(); renderSettings(); toast(`${add.length}件を読み込みました`); }
+  }catch(e){ toast('読み込めないファイルです'); }
+  ev.target.value = '';
+};
+$('#wipeBtn').onclick = () => {
+  if(!confirm('すべての記録を削除します。元に戻せません。よろしいですか？')) return;
+  db.entries = []; db.draft = null; save(); fillForm(null); toast('削除しました');
+};
+
+// ---------- meditation ----------
+function renderMedSetup(){
+  const n = db.settings.guide.length;
+  $('#guideState').textContent = n ? `ガイド：${n}ステップ` : 'ガイドが未設定です。設定画面でステップを入力すると、言葉が順番に表示されます。未設定のままでも、光とタイマーだけで瞑想できます。';
+  $('#medDur').value = db.settings.medDur; $('#medMode').value = db.settings.medMode; $('#stepBell').checked = db.settings.stepBell;
+}
+['medDur','medMode'].forEach(id => $('#'+id).onchange = () => { db.settings[id] = $('#'+id).value; save(); });
+$('#stepBell').onchange = () => { db.settings.stepBell = $('#stepBell').checked; save(); };
+
+let actx = null;
+function bell(strong){
+  try{
+    actx ||= new (window.AudioContext||window.webkitAudioContext)();
+    const t = actx.currentTime;
+    [[528,1],[792,.35],[1056,.15]].forEach(([f,g]) => {
+      const o = actx.createOscillator(), v = actx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      v.gain.setValueAtTime(0,t); v.gain.linearRampToValueAtTime((strong?.28:.12)*g,t+.02);
+      v.gain.exponentialRampToValueAtTime(.0001,t+(strong?6:3));
+      o.connect(v).connect(actx.destination); o.start(t); o.stop(t+(strong?6:3));
+    });
+  }catch(e){}
+}
+
+// orb look by progress 0..1: silver → gold → wide radiance
+function orbStyle(p){
+  const orb = $('#orb');
+  const mix = (a,b,t) => a.map((x,i) => Math.round(x+(b[i]-x)*t));
+  const silver=[214,222,236], gold=[240,196,92];
+  const c = p<.25 ? silver : mix(silver,gold,Math.min(1,(p-.25)/.2));
+  const size = p<.6 ? 30+p*30 : 48+(p-.6)*80;
+  orb.style.width = orb.style.height = size+'vmin';
+  orb.style.background = `radial-gradient(circle closest-side, rgba(255,255,250,.95) 0%, rgba(${c},.85) 30%, rgba(${c},${.18+p*.25}) 65%, rgba(${c},0) 100%)`;
+}
+
+const med = {on:false, idx:0, steps:[], stepMs:0, left:0, paused:false, timer:null, tick:null, started:0, elapsed:0, lastTick:0, lock:null};
+async function wake(on){
+  try{
+    if(on && 'wakeLock' in navigator) med.lock = await navigator.wakeLock.request('screen');
+    else if(!on && med.lock){ await med.lock.release(); med.lock = null; }
+  }catch(e){}
+}
+$('#startMed').onclick = () => {
+  const mins = Number(db.settings.medDur);
+  const guide = db.settings.guide;
+  med.steps = guide.length ? guide.slice() : [''];
+  med.totalMs = mins*60000;
+  med.stepMs = med.totalMs / med.steps.length;
+  med.mode = guide.length ? db.settings.medMode : 'auto';
+  med.idx = -1; med.elapsed = 0; med.paused = false; med.on = true; med.before = scaleVal.preBefore || null;
+  scaleVal.postAfter = null; paintScale('postAfter');
+  $('#medStage').classList.remove('hidden'); $('#medEnd').classList.add('hidden'); $('#medCtl').classList.remove('hidden');
+  $('#medNext').classList.toggle('hidden', !guide.length);
+  $('#medPause').textContent = '一時停止';
+  orbStyle(0); bell(true); wake(true);
+  med.lastTick = Date.now();
+  med.tick = setInterval(medTick, 250);
+  nextStep();
+};
+function nextStep(){
+  med.idx++;
+  if(med.idx >= med.steps.length){ finishMed(); return; }
+  med.left = med.stepMs;
+  const t = $('#medText'); t.style.opacity = 0;
+  setTimeout(() => { t.textContent = med.steps[med.idx]; t.style.opacity = 1; }, 600);
+  if(med.idx>0 && db.settings.stepBell) bell(false);
+  orbStyle(med.steps.length>1 ? med.idx/(med.steps.length-1) : .5);
+  updInfo();
+}
+function updInfo(){
+  const s = Math.max(0, Math.round((med.totalMs - med.elapsed)/1000));
+  const step = med.steps.length>1 ? `${med.idx+1} / ${med.steps.length}　` : '';
+  $('#medInfo').textContent = med.mode==='tap' ? `${step}経過 ${Math.floor(med.elapsed/60000)}分` : `${step}残り ${Math.floor(s/60)}:${pad(s%60)}`;
+  $('#medProg').style.width = (med.mode==='tap' ? (med.idx+1)/med.steps.length : Math.min(1, med.elapsed/med.totalMs))*100 + '%';
+}
+function medTick(){
+  const now = Date.now(), dt = now - med.lastTick; med.lastTick = now;
+  if(med.paused || !med.on) return;
+  med.elapsed += dt;
+  if(med.mode==='auto'){
+    med.left -= dt;
+    if(med.left <= 0) nextStep();
+  }
+  updInfo();
+}
+$('#medStage').addEventListener('click', e => {
+  if(med.on && med.mode==='tap' && !e.target.closest('#medCtl') ) nextStep();
+});
+$('#medNext').onclick = () => nextStep();
+$('#medPause').onclick = () => { med.paused = !med.paused; $('#medPause').textContent = med.paused ? '再開' : '一時停止'; };
+$('#medStop').onclick = () => finishMed();
+function finishMed(){
+  if(!med.on) return;
+  med.on = false; clearInterval(med.tick); bell(true); wake(false);
+  orbStyle(1);
+  $('#medText').textContent = 'おつかれさまでした';
+  $('#medCtl').classList.add('hidden'); $('#medEnd').classList.remove('hidden');
+}
+$('#medClose').onclick = () => $('#medStage').classList.add('hidden');
+$('#medToRecord').onclick = () => {
+  $('#medStage').classList.add('hidden');
+  if(editingId){ editingId = null; $('#editBanner').classList.add('hidden'); fillForm(db.draft); }
+  $('#medDone').checked = true; $('#medFields').classList.remove('hidden');
+  $('#medMin').value = Math.max(1, Math.round(med.elapsed/60000));
+  if(med.before) scaleVal.medBefore = med.before;
+  if(scaleVal.postAfter) scaleVal.medAfter = scaleVal.postAfter;
+  paintScale('medBefore'); paintScale('medAfter');
+  onDraftChange(); show('check');
+  $('#medDone').scrollIntoView({block:'center'});
+  toast('瞑想の記録を入れました。最後に「記録する」を押してください');
+};
+
+// ---------- init ----------
+const now = new Date();
+$('#todayLabel').textContent = `${now.getMonth()+1}/${now.getDate()}（${WD[now.getDay()]}）`;
+fillForm(db.draft);
+})();
+</script>
+</body>
+</html>
