@@ -648,6 +648,7 @@ $("pdfBtn").onclick = async () => {
 // ---------- ライブカメラ ----------
 const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
 const SW = 240, MW = 480;
+const CAPTURE_DELAY = 500; // ピントが合ってから撮影するまでの時間（ミリ秒）
 const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
 const med = document.createElement("canvas"), mctx = med.getContext("2d", { willReadFrequently: true });
 let stream = null, phase = "search", t0 = 0, prevGray = null, prevQuad = null, shownQuad = null;
@@ -728,7 +729,7 @@ function analyze() {
     else phase = "settle";
   } else if (phase === "count") {
     if (!settings.auto || !q || motion > 5 || cornerMove > SW * 0.03) phase = q ? "settle" : "search";
-    else if (now - t0 >= 1000) {
+    else if (now - t0 >= CAPTURE_DELAY) {
       if (lastCapGray && meanDiff(lastCapGray, g) < 4) { phase = "turn"; sawChange = false; }
       else { capture(q, g); return; }
     }
@@ -737,7 +738,7 @@ function analyze() {
   const statusText = {
     search: "ページを探しています",
     settle: settings.auto ? "ピントを合わせています…" : "手動撮影：シャッターを押してください",
-    count: `撮影まで ${Math.max(0, (1000 - (now - t0)) / 1000).toFixed(1)} 秒`,
+    count: `撮影まで ${Math.max(0, (CAPTURE_DELAY - (now - t0)) / 1000).toFixed(1)} 秒`,
     turn: "撮影しました。ページをめくってください",
   }[phase];
   setStatus(phase, statusText);
@@ -758,7 +759,7 @@ function drawOverlay() {
   for (const p of pts) { octx.beginPath(); octx.arc(p.x, p.y, 6, 0, Math.PI * 2); octx.fillStyle = col; octx.fill(); }
   if (phase === "count") {
     const cx = pts.reduce((a, p) => a + p.x, 0) / 4, cy = pts.reduce((a, p) => a + p.y, 0) / 4;
-    const f = Math.min(1, (performance.now() - t0) / 1000);
+    const f = Math.min(1, (performance.now() - t0) / CAPTURE_DELAY);
     octx.beginPath(); octx.arc(cx, cy, 30, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
     octx.lineWidth = 6; octx.strokeStyle = "#5fd3ac"; octx.stroke();
   }
