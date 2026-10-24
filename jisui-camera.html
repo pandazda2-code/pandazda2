@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="自炊カメラ">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}*,*::before,*::after{box-sizing:inherit}body{margin:0}img{max-width:100%}</style>
+<title>自炊カメラ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+/* 1画面ツール: 上にヘッダー、中央にファインダー、下に操作バーとページ一覧 */
+:root {
+  --bg: #eceee9;
+  --surface: #fbfcfa;
+  --fg: #1c2320;
+  --muted: #5b6862;
+  --line: #d3d9d4;
+  --accent: #1e6b58;
+  --accent-fg: #ffffff;
+  --amber: #c27a1c;
+  --danger: #b33a2e;
+  --view: #121614;
+  --view-fg: #e9efec;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161a18; --surface: #1f2522; --fg: #e6ebe8; --muted: #9aa8a1; --line: #323a36;
+    --accent: #4fb596; --accent-fg: #0e1a15; --amber: #e3a14a; --danger: #e0735f;
+    --view: #0b0d0c; --view-fg: #e9efec; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161a18; --surface: #1f2522; --fg: #e6ebe8; --muted: #9aa8a1; --line: #323a36;
+  --accent: #4fb596; --accent-fg: #0e1a15; --amber: #e3a14a; --danger: #e0735f;
+  --view: #0b0d0c; --view-fg: #e9efec; color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bar {
+  display: flex; align-items: center; gap: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px;
+}
+header.bar { border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.brand h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
+.brand small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.count b { color: var(--fg); font-size: 18px; font-weight: 500; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 8px;
+  padding: 8px 14px; font-weight: 700; white-space: nowrap;
+}
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.danger { color: var(--danger); }
+
+/* ファインダー */
+#finder { position: relative; flex: 1; min-height: 0; background: var(--view); color: var(--view-fg); overflow: hidden; }
+#video, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+#video { object-fit: contain; }
+#flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.35s ease-out; }
+#flash.on { opacity: 0.85; transition: none; }
+.status {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(10, 13, 12, 0.72); color: #eef3f0; border-radius: 999px; padding: 7px 14px 7px 10px;
+  font-size: 14px; white-space: nowrap; backdrop-filter: blur(6px);
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #8c9993; flex: none; }
+.status[data-phase="settle"] .dot { background: #f0b15a; }
+.status[data-phase="count"] .dot { background: #5fd3ac; box-shadow: 0 0 0 4px rgba(95, 211, 172, 0.25); }
+.status[data-phase="turn"] .dot { background: #ffffff; }
+.focus {
+  position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); bottom: 14px;
+  display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: #c9d3ce;
+  background: rgba(10, 13, 12, 0.6); padding: 6px 10px; border-radius: 6px; letter-spacing: 0.06em;
+}
+.focus .meter { width: 70px; height: 5px; background: rgba(255, 255, 255, 0.18); border-radius: 3px; overflow: hidden; }
+.focus .meter i { display: block; height: 100%; width: 0%; background: #5fd3ac; transition: width 0.12s; }
+
+#fallback {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; text-align: center; padding: 24px max(20px, env(safe-area-inset-right, 0px)) 24px max(20px, env(safe-area-inset-left, 0px));
+}
+#fallback h2 { margin: 0; font-size: 19px; text-wrap: balance; }
+#fallback p { margin: 0; max-width: 34em; color: #b9c5bf; line-height: 1.7; font-size: 14px; }
+#fallback .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#fallback .btn { background: #26302c; border-color: #3a4641; color: #eef3f0; padding: 12px 18px; }
+#fallback .btn.primary { background: #4fb596; border-color: #4fb596; color: #0e1a15; }
+.linkish { background: none; border: 0; color: #9fd8c5; text-decoration: underline; font-size: 13px; padding: 4px; }
+
+/* 操作バー */
+.controls { background: var(--surface); border-top: 1px solid var(--line); justify-content: space-between; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { width: 40px; height: 24px; border-radius: 12px; background: var(--line); position: relative; transition: background 0.15s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+.toggle input:checked + .switch { background: var(--accent); }
+.toggle input:checked + .switch::after { transform: translateX(16px); }
+.toggle b { color: var(--fg); font-weight: 700; }
+#shutter {
+  width: 64px; height: 64px; border-radius: 50%; border: 4px solid var(--fg); background: transparent; padding: 4px; flex: none;
+}
+#shutter span { display: block; width: 100%; height: 100%; border-radius: 50%; background: var(--accent); transition: transform 0.1s; }
+#shutter:active span { transform: scale(0.88); }
+.side { flex: 1; display: flex; }
+.side.right { justify-content: flex-end; }
+
+/* ページ一覧 */
+.strip-wrap { background: var(--surface); border-top: 1px solid var(--line); }
+#strip {
+  display: flex; gap: 10px; overflow-x: auto; min-height: 104px; align-items: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px 12px; scrollbar-width: thin;
+}
+.thumb { position: relative; flex: none; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); padding: 0; overflow: hidden; height: 80px; }
+.thumb img { height: 100%; width: auto; display: block; max-width: none; }
+.thumb .no {
+  position: absolute; left: 0; bottom: 0; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums;
+  background: rgba(10, 13, 12, 0.72); color: #fff; padding: 1px 5px; border-top-right-radius: 4px;
+}
+.empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+/* シート・ダイアログ */
+.scrim { position: fixed; inset: 0; background: rgba(8, 10, 9, 0.6); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  background: var(--surface); color: var(--fg); width: 100%; max-width: 560px; border-radius: 14px 14px 0 0;
+  padding: 18px max(18px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; gap: 16px; max-height: 92%; overflow-y: auto;
+}
+.sheet h3 { margin: 0; font-size: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-size: 12px; color: var(--muted); letter-spacing: 0.06em; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg label { flex: 1; text-align: center; padding: 9px 6px; font-size: 13px; cursor: pointer; border-left: 1px solid var(--line); }
+.seg label:first-child { border-left: 0; }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg label:has(input:checked) { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
+input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.sheet .actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+
+.full { position: fixed; inset: 0; z-index: 30; background: var(--view); color: var(--view-fg); display: flex; flex-direction: column; }
+.full .stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 12px; }
+.full .stage img { max-height: 100%; max-width: 100%; object-fit: contain; background: #fff; }
+.full canvas { width: 100%; height: 100%; touch-action: none; display: block; }
+.full .bar { background: #1a201d; justify-content: space-between; flex-wrap: wrap; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+.full .bar .btn { background: #26302c; border-color: #3a4641; color: #eef3f0; }
+.full .bar .btn.primary { background: #4fb596; border-color: #4fb596; color: #0e1a15; }
+.full .bar .btn.danger { color: #f19a8a; }
+.full .title { font-size: 13px; color: #b9c5bf; font-family: var(--font-mono); }
+.full .top { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+
+#toast {
+  position: fixed; left: 50%; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 14px; z-index: 40;
+  max-width: calc(100% - 32px); text-align: center;
+}
+@media (prefers-reduced-motion: reduce) { #flash, .switch, .switch::after, .focus .meter i { transition: none; } }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <h1>自炊カメラ</h1>
+    <small id="bookLabel">本のページを撮ってPDFにまとめます</small>
+  </div>
+  <div class="count"><b id="countNum">0</b> ページ</div>
+  <button class="btn primary" id="pdfBtn" disabled>PDF作成</button>
+</header>
+
+<main id="finder">
+  <video id="video" playsinline muted autoplay hidden></video>
+  <canvas id="overlay"></canvas>
+  <div id="flash"></div>
+  <div class="status" id="status" data-phase="search" hidden><span class="dot"></span><span id="statusText">ページを探しています</span></div>
+  <div class="focus" id="focus" hidden>FOCUS <span class="meter"><i id="focusBar"></i></span></div>
+  <div id="fallback">
+    <h2 id="fbTitle">カメラを準備しています…</h2>
+    <p id="fbText">本を暗めの机や布の上に置いて、ページ全体が画面に入るように構えてください。</p>
+    <div class="row" id="fbButtons" hidden>
+      <button class="btn primary" id="snapBtn">カメラで1ページ撮る</button>
+      <button class="btn" id="pickBtn">写真を選ぶ（複数可）</button>
+    </div>
+    <button class="linkish" id="retryCam" hidden>ライブカメラをもう一度試す</button>
+  </div>
+</main>
+
+<div class="bar controls">
+  <div class="side">
+    <label class="toggle" id="autoWrap"><input type="checkbox" id="autoChk" checked><span class="switch"></span><span><b>自動撮影</b></span></label>
+  </div>
+  <button id="shutter" aria-label="今すぐ撮影"><span></span></button>
+  <div class="side right"><button class="btn" id="settingsBtn">設定</button></div>
+</div>
+<div class="strip-wrap"><div id="strip"></div></div>
+
+<input type="file" id="camInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileInput" accept="image/*" multiple hidden>
+
+<div class="scrim" id="settings" hidden>
+  <div class="sheet" role="dialog" aria-label="設定">
+    <h3>撮影と仕上げの設定</h3>
+    <div class="field"><span>書名（PDFのファイル名）</span><input type="text" id="bookName" placeholder="例：日本の庭園 第2版"></div>
+    <div class="field"><span>撮り方</span>
+      <div class="seg"><label><input type="radio" name="layout" value="single" checked>1ページずつ</label><label><input type="radio" name="layout" value="spread">見開き（左右に分割）</label></div>
+    </div>
+    <div class="field"><span>綴じ方向</span>
+      <div class="seg"><label><input type="radio" name="dir" value="rtl" checked>右綴じ（縦書き）</label><label><input type="radio" name="dir" value="ltr">左綴じ（横書き）</label></div>
+      <p class="hint">見開きを分ける順番と、PDFをめくる向きに使います。縦書きの本は右ページが先になります。</p>
+    </div>
+    <div class="field"><span>仕上げ</span>
+      <div class="seg"><label><input type="radio" name="finish" value="color" checked>カラー</label><label><input type="radio" name="finish" value="gray">グレー</label><label><input type="radio" name="finish" value="bw">くっきり白黒</label></div>
+      <p class="hint">「くっきり白黒」は影や紙の黄ばみを取り除き、文字を濃くします。文字だけの本におすすめです。</p>
+    </div>
+    <p class="hint">うまく枠が出ないときは、白っぽい机を避けて、暗めの布や机の上に本を置いてください。撮影したページはこの端末の中だけで処理され、外部には送られません。</p>
+    <div class="actions"><button class="btn danger" id="clearAll">全ページを削除</button><button class="btn primary" id="closeSettings">閉じる</button></div>
+  </div>
+</div>
+
+<div class="full" id="viewer" hidden>
+  <div class="bar top"><span class="title" id="viewerTitle">1 / 1</span><button class="btn" id="viewerClose">閉じる</button></div>
+  <div class="stage"><img id="viewerImg" alt="撮影したページ"></div>
+  <div class="bar"><div style="display:flex;gap:8px"><button class="btn" id="moveL">← 前へ移動</button><button class="btn" id="moveR">後ろへ移動 →</button></div><button class="btn danger" id="delPage">このページを削除</button></div>
+</div>
+
+<div class="full" id="review" hidden>
+  <div class="bar top"><span class="title" id="reviewTitle">四隅をドラッグしてページに合わせてください</span></div>
+  <div class="stage" style="padding:0"><canvas id="reviewCanvas"></canvas></div>
+  <div class="bar"><button class="btn" id="reviewCancel">やめる</button><button class="btn primary" id="reviewOk">このページを追加</button></div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(() => {
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ---------- 設定 ----------
+const settings = { layout: "single", dir: "rtl", finish: "color", auto: true, name: "" };
+try { Object.assign(settings, JSON.parse(localStorage.getItem("jisui-settings") || "{}")); } catch (e) {}
+function saveSettings() { try { localStorage.setItem("jisui-settings", JSON.stringify(settings)); } catch (e) {} }
+for (const k of ["layout", "dir", "finish"]) {
+  document.querySelectorAll(`input[name="${k}"]`).forEach((r) => {
+    r.checked = r.value === settings[k];
+    r.addEventListener("change", () => { settings[k] = r.value; saveSettings(); });
+  });
+}
+$("autoChk").checked = settings.auto;
+$("autoChk").addEventListener("change", (e) => { settings.auto = e.target.checked; saveSettings(); });
+$("bookName").value = settings.name;
+$("bookName").addEventListener("input", (e) => { settings.name = e.target.value; saveSettings(); updateLabel(); });
+function updateLabel() { $("bookLabel").textContent = settings.name.trim() || "本のページを撮ってPDFにまとめます"; }
+updateLabel();
+
+$("settingsBtn").onclick = () => { $("settings").hidden = false; };
+$("closeSettings").onclick = () => { $("settings").hidden = true; };
+$("settings").addEventListener("click", (e) => { if (e.target.id === "settings") $("settings").hidden = true; });
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+// ---------- 撮影音 ----------
+let actx = null;
+document.addEventListener("pointerdown", () => {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+}, { once: true });
+function shutterSound() {
+  if (navigator.vibrate) { try { navigator.vibrate(40); } catch (e) {} }
+  if (!actx) return;
+  try {
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(600, t + 0.08);
+    g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.13);
+  } catch (e) {}
+}
+function flash() {
+  const f = $("flash"); f.classList.add("on");
+  requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove("on")));
+}
+
+// ---------- 画像処理 ----------
+function grayOf(img) {
+  const d = img.data, n = d.length >> 2, g = new Uint8Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) g[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+  return g;
+}
+function otsu(g) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < g.length; i++) hist[g[i]]++;
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, best = 0, t = 128;
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i]; if (!wB) continue;
+    const wF = g.length - wB; if (!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > best) { best = v; t = i; }
+  }
+  return t;
+}
+function polyArea(q) {
+  let a = 0;
+  for (let i = 0; i < 4; i++) { const p = q[i], r = q[(i + 1) % 4]; a += p.x * r.y - r.x * p.y; }
+  return Math.abs(a) / 2;
+}
+// 明るい紙の領域のうち最大のものを探し、四隅（左上・右上・右下・左下）を返す
+function detectQuad(g, w, h) {
+  const t = otsu(g), n = w * h;
+  const seen = new Uint8Array(n), stack = new Int32Array(n);
+  let best = null;
+  for (let s = 0; s < n; s++) {
+    if (seen[s] || g[s] <= t) continue;
+    let sp = 0, size = 0; stack[sp++] = s; seen[s] = 1;
+    let minS = 1e9, minSi = s, maxS = -1e9, maxSi = s, minD = 1e9, minDi = s, maxD = -1e9, maxDi = s;
+    while (sp) {
+      const i = stack[--sp]; size++;
+      const x = i % w, y = (i / w) | 0, S = x + y, D = x - y;
+      if (S < minS) { minS = S; minSi = i; } if (S > maxS) { maxS = S; maxSi = i; }
+      if (D < minD) { minD = D; minDi = i; } if (D > maxD) { maxD = D; maxDi = i; }
+      if (x > 0) { const j = i - 1; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
+      if (x < w - 1) { const j = i + 1; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
+      if (y > 0) { const j = i - w; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
+      if (y < h - 1) { const j = i + w; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
+    }
+    if (!best || size > best.size) best = { size, minSi, maxSi, minDi, maxDi };
+  }
+  if (!best || best.size < n * 0.12) return null;
+  const P = (i) => ({ x: (i % w) + 0.5, y: ((i / w) | 0) + 0.5 });
+  const q = [P(best.minSi), P(best.maxDi), P(best.maxSi), P(best.minDi)];
+  const area = polyArea(q);
+  if (area < n * 0.12 || best.size / area < 0.72) return null;
+  return q;
+}
+function detectOnCanvas(c, targetW) {
+  const s = Math.min(1, targetW / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
+  const t = document.createElement("canvas"); t.width = w; t.height = h;
+  const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
+  const q = detectQuad(grayOf(tc.getImageData(0, 0, w, h)), w, h);
+  return q ? q.map((p) => ({ x: p.x / s, y: p.y / s })) : null;
+}
+function sharpness(g, w, h, box) {
+  const x0 = Math.max(1, box.x0 | 0), x1 = Math.min(w - 2, box.x1 | 0), y0 = Math.max(1, box.y0 | 0), y1 = Math.min(h - 2, box.y1 | 0);
+  let s = 0, s2 = 0, c = 0;
+  for (let y = y0; y <= y1; y++) for (let x = x0, i = y * w + x0; x <= x1; x++, i++) {
+    const L = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+    s += L; s2 += L * L; c++;
+  }
+  return c ? s2 / c - (s / c) * (s / c) : 0;
+}
+function meanDiff(a, b) {
+  if (!a || !b || a.length !== b.length) return 99;
+  let s = 0, c = 0;
+  for (let i = 0; i < a.length; i += 3) { s += Math.abs(a[i] - b[i]); c++; }
+  return s / c;
+}
+function solve(A, b) {
+  const n = b.length;
+  for (let i = 0; i < n; i++) {
+    let p = i; for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r;
+    [A[i], A[p]] = [A[p], A[i]]; [b[i], b[p]] = [b[p], b[i]];
+    for (let r = i + 1; r < n; r++) {
+      const f = A[r][i] / A[i][i];
+      for (let c = i; c < n; c++) A[r][c] -= f * A[i][c];
+      b[r] -= f * b[i];
+    }
+  }
+  const x = new Array(n);
+  for (let i = n - 1; i >= 0; i--) { let s = b[i]; for (let c = i + 1; c < n; c++) s -= A[i][c] * x[c]; x[i] = s / A[i][i]; }
+  return x;
+}
+function homography(from, to) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = from[i], { x: u, y: v } = to[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  return solve(A, b).concat(1);
+}
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// 斜めに写ったページを真上から見た長方形に直す
+function warp(src, q) {
+  let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
+  const s = Math.min(1, 2400 / Math.max(W, H)); W = Math.max(16, Math.round(W * s)); H = Math.max(16, Math.round(H * s));
+  const bx0 = Math.max(0, Math.floor(Math.min(...q.map((p) => p.x)))), by0 = Math.max(0, Math.floor(Math.min(...q.map((p) => p.y))));
+  const bx1 = Math.min(src.width, Math.ceil(Math.max(...q.map((p) => p.x)))), by1 = Math.min(src.height, Math.ceil(Math.max(...q.map((p) => p.y))));
+  const bw = bx1 - bx0, bh = by1 - by0;
+  const sd = src.getContext("2d", { willReadFrequently: true }).getImageData(bx0, by0, bw, bh).data;
+  const out = document.createElement("canvas"); out.width = W; out.height = H;
+  const octx = out.getContext("2d"), oimg = octx.createImageData(W, H), od = oimg.data;
+  const Hm = homography([{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }], q.map((p) => ({ x: p.x - bx0, y: p.y - by0 })));
+  let o = 0;
+  for (let y = 0; y < H; y++) {
+    const yy = y + 0.5;
+    for (let x = 0; x < W; x++, o += 4) {
+      const xx = x + 0.5, d = Hm[6] * xx + Hm[7] * yy + 1;
+      let sx = (Hm[0] * xx + Hm[1] * yy + Hm[2]) / d - 0.5, sy = (Hm[3] * xx + Hm[4] * yy + Hm[5]) / d - 0.5;
+      if (sx < 0) sx = 0; if (sy < 0) sy = 0; if (sx > bw - 1.001) sx = bw - 1.001; if (sy > bh - 1.001) sy = bh - 1.001;
+      const ix = sx | 0, iy = sy | 0, fx = sx - ix, fy = sy - iy;
+      const i00 = (iy * bw + ix) * 4, i10 = i00 + 4, i01 = i00 + bw * 4, i11 = i01 + 4;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      od[o] = sd[i00] * w00 + sd[i10] * w10 + sd[i01] * w01 + sd[i11] * w11;
+      od[o + 1] = sd[i00 + 1] * w00 + sd[i10 + 1] * w10 + sd[i01 + 1] * w01 + sd[i11 + 1] * w11;
+      od[o + 2] = sd[i00 + 2] * w00 + sd[i10 + 2] * w10 + sd[i01 + 2] * w01 + sd[i11 + 2] * w11;
+      od[o + 3] = 255;
+    }
+  }
+  octx.putImageData(oimg, 0, 0);
+  return out;
+}
+function enhance(c, mode) {
+  if (mode === "color") return c;
+  const W = c.width, H = c.height, ctx = c.getContext("2d", { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  if (mode === "gray") {
+    for (let i = 0; i < d.length; i += 4) { const l = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8; d[i] = d[i + 1] = d[i + 2] = l; }
+    ctx.putImageData(img, 0, 0); return c;
+  }
+  // くっきり白黒: 紙の明るさ（影やムラ）を推定して割り算で平らにし、文字を濃くする
+  const bw = Math.max(8, Math.round(W / 24)), bh = Math.max(8, Math.round(H / 24));
+  const t = document.createElement("canvas"); t.width = bw; t.height = bh;
+  const tctx = t.getContext("2d", { willReadFrequently: true }); tctx.imageSmoothingQuality = "high"; tctx.drawImage(c, 0, 0, bw, bh);
+  const ti = tctx.getImageData(0, 0, bw, bh); let g = grayOf(ti);
+  for (let pass = 0; pass < 2; pass++) {
+    const m = new Uint8Array(g.length);
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      let v = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = Math.min(bw - 1, Math.max(0, x + dx)), yy = Math.min(bh - 1, Math.max(0, y + dy));
+        const p = g[yy * bw + xx]; if (p > v) v = p;
+      }
+      m[y * bw + x] = v;
+    }
+    g = m;
+  }
+  for (let i = 0; i < g.length; i++) { ti.data[i * 4] = ti.data[i * 4 + 1] = ti.data[i * 4 + 2] = g[i]; }
+  tctx.putImageData(ti, 0, 0);
+  const up = document.createElement("canvas"); up.width = W; up.height = H;
+  const uctx = up.getContext("2d", { willReadFrequently: true }); uctx.imageSmoothingQuality = "high"; uctx.drawImage(t, 0, 0, W, H);
+  const bg = uctx.getImageData(0, 0, W, H).data;
+  for (let i = 0; i < d.length; i += 4) {
+    const l = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+    let v = (l / Math.max(bg[i], 1) - 0.5) / 0.42;
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    d[i] = d[i + 1] = d[i + 2] = Math.round(Math.pow(v, 1.6) * 255);
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+function toBlob(c) { return new Promise((res) => c.toBlob(res, "image/jpeg", 0.86)); }
+async function processImage(src, quad) {
+  const q = quad || [{ x: 0, y: 0 }, { x: src.width, y: 0 }, { x: src.width, y: src.height }, { x: 0, y: src.height }];
+  let page = warp(src, q);
+  const parts = [];
+  if (settings.layout === "spread") {
+    const half = Math.floor(page.width / 2);
+    for (const [x, w] of [[0, half], [half, page.width - half]]) {
+      const c = document.createElement("canvas"); c.width = w; c.height = page.height;
+      c.getContext("2d").drawImage(page, x, 0, w, page.height, 0, 0, w, page.height); parts.push(c);
+    }
+    if (settings.dir === "rtl") parts.reverse();
+  } else parts.push(page);
+  for (const c of parts) {
+    enhance(c, settings.finish);
+    const blob = await toBlob(c);
+    addPage({ blob, url: URL.createObjectURL(blob), w: c.width, h: c.height });
+  }
+  return parts.length;
+}
+
+// ---------- ページ管理 ----------
+const pages = [];
+function addPage(p) { pages.push(p); renderStrip(); const s = $("strip"); s.scrollLeft = s.scrollWidth; }
+function renderStrip() {
+  const s = $("strip"); s.textContent = "";
+  $("countNum").textContent = pages.length;
+  $("pdfBtn").disabled = pages.length === 0;
+  if (!pages.length) {
+    const e = document.createElement("div"); e.className = "empty";
+    e.textContent = "撮影したページはここに並びます。タップすると拡大・並べ替え・削除ができます。";
+    s.appendChild(e); return;
+  }
+  pages.forEach((p, i) => {
+    const b = document.createElement("button"); b.className = "thumb"; b.setAttribute("aria-label", `${i + 1}ページ目を開く`);
+    const im = document.createElement("img"); im.src = p.url; im.alt = "";
+    const no = document.createElement("span"); no.className = "no"; no.textContent = String(i + 1).padStart(3, "0");
+    b.append(im, no); b.onclick = () => openViewer(i); s.appendChild(b);
+  });
+}
+let viewIdx = 0;
+function openViewer(i) {
+  viewIdx = i; $("viewer").hidden = false;
+  $("viewerImg").src = pages[i].url; $("viewerTitle").textContent = `${i + 1} / ${pages.length}`;
+  $("moveL").disabled = i === 0; $("moveR").disabled = i === pages.length - 1;
+}
+$("viewerClose").onclick = () => { $("viewer").hidden = true; };
+$("moveL").onclick = () => { if (viewIdx > 0) { [pages[viewIdx - 1], pages[viewIdx]] = [pages[viewIdx], pages[viewIdx - 1]]; renderStrip(); openViewer(viewIdx - 1); } };
+$("moveR").onclick = () => { if (viewIdx < pages.length - 1) { [pages[viewIdx + 1], pages[viewIdx]] = [pages[viewIdx], pages[viewIdx + 1]]; renderStrip(); openViewer(viewIdx + 1); } };
+$("delPage").onclick = () => {
+  const [p] = pages.splice(viewIdx, 1); URL.revokeObjectURL(p.url); renderStrip();
+  if (!pages.length) $("viewer").hidden = true; else openViewer(Math.min(viewIdx, pages.length - 1));
+  toast("ページを削除しました");
+};
+let clearArmed = false;
+$("clearAll").onclick = () => {
+  if (!pages.length) return;
+  if (!clearArmed) { clearArmed = true; $("clearAll").textContent = "もう一度押すと削除"; setTimeout(() => { clearArmed = false; $("clearAll").textContent = "全ページを削除"; }, 3000); return; }
+  pages.splice(0).forEach((p) => URL.revokeObjectURL(p.url)); renderStrip();
+  clearArmed = false; $("clearAll").textContent = "全ページを削除"; toast("全ページを削除しました");
+};
+
+// ---------- PDF ----------
+async function saveFile(blob, filename) {
+  try {
+    if (window.claude && window.claude.use) {
+      const dl = await window.claude.use("downloads");
+      if (dl) {
+        try { await dl.save({ filename, data: blob }); toast("PDFを保存しました"); }
+        catch (e) { toast(e && e.code === "declined" ? "保存をキャンセルしました" : "この画面では保存できませんでした"); }
+        return;
+      }
+    }
+  } catch (e) {}
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  toast("PDFを保存しました");
+}
+$("pdfBtn").onclick = async () => {
+  if (!pages.length) return;
+  if (!window.jspdf) { toast("PDF作成の部品を読み込めませんでした。通信状態を確認してください"); return; }
+  const btn = $("pdfBtn"); btn.disabled = true;
+  try {
+    const { jsPDF } = window.jspdf; let doc = null;
+    for (let i = 0; i < pages.length; i++) {
+      btn.textContent = `作成中 ${i + 1}/${pages.length}`;
+      const p = pages[i], wpt = 420, hpt = (420 * p.h) / p.w, orient = wpt > hpt ? "l" : "p";
+      if (!doc) doc = new jsPDF({ unit: "pt", format: [wpt, hpt], orientation: orient, compress: true });
+      else doc.addPage([wpt, hpt], orient);
+      const bytes = new Uint8Array(await p.blob.arrayBuffer());
+      doc.addImage(bytes, "JPEG", 0, 0, wpt, hpt, undefined, "NONE");
+      if (i % 5 === 4) await new Promise((r) => setTimeout(r));
+    }
+    if (settings.dir === "rtl") { try { doc.viewerPreferences({ Direction: "R2L" }); } catch (e) {} }
+    try { doc.setProperties({ title: settings.name.trim() || "自炊PDF" }); } catch (e) {}
+    const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const base = (settings.name.trim() || "本").replace(/[\\/:*?"<>|]/g, "_");
+    await saveFile(doc.output("blob"), `${base}_${stamp}.pdf`);
+  } catch (e) {
+    toast("PDFを作れませんでした。ページ数を減らしてもう一度お試しください");
+  } finally { btn.textContent = "PDF作成"; btn.disabled = pages.length === 0; }
+};
+
+// ---------- ライブカメラ ----------
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const SW = 240, MW = 480;
+const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
+const med = document.createElement("canvas"), mctx = med.getContext("2d", { willReadFrequently: true });
+let stream = null, phase = "search", t0 = 0, prevGray = null, prevQuad = null, shownQuad = null;
+let sharpHist = [], sawChange = true, lastCapGray = null, focusRatio = 0, wakeLock = null;
+
+async function startCamera() {
+  $("fbTitle").textContent = "カメラを準備しています…";
+  $("fbButtons").hidden = true; $("retryCam").hidden = true;
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("no media");
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
+    video.srcObject = stream; video.hidden = false; await video.play();
+    const track = stream.getVideoTracks()[0];
+    try { const caps = track.getCapabilities ? track.getCapabilities() : {}; if (caps.focusMode && caps.focusMode.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+    $("fallback").hidden = true; $("status").hidden = false; $("focus").hidden = false;
+    phase = "search"; tick();
+  } catch (e) {
+    stream = null; video.hidden = true;
+    $("fbTitle").textContent = "1ページずつ撮影するモードで使えます";
+    $("fbText").textContent = "この画面ではライブカメラを使えないため、スマホのカメラで1枚ずつ撮影します。撮った写真からページの範囲を自動で見つけて、まっすぐに補正します。本は暗めの机や布の上に置くと認識しやすくなります。";
+    $("fbButtons").hidden = false; $("retryCam").hidden = false;
+    $("autoWrap").hidden = true;
+  }
+}
+$("retryCam").onclick = startCamera;
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible" && stream && navigator.wakeLock) { try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {} }
+});
+
+function setStatus(p, text) { const s = $("status"); s.dataset.phase = p; $("statusText").textContent = text; }
+
+function tick() {
+  if (!stream) return;
+  if (video.readyState >= 2 && video.videoWidth && phase !== "busy") analyze();
+  setTimeout(() => requestAnimationFrame(tick), 90);
+}
+function analyze() {
+  const vw = video.videoWidth, vh = video.videoHeight, SH = Math.round((SW * vh) / vw), MH = Math.round((MW * vh) / vw);
+  if (small.width !== SW || small.height !== SH) { small.width = SW; small.height = SH; }
+  sctx.drawImage(video, 0, 0, SW, SH);
+  const g = grayOf(sctx.getImageData(0, 0, SW, SH));
+  const motion = meanDiff(prevGray, g); prevGray = g;
+  const q = detectQuad(g, SW, SH);
+  let cornerMove = 99;
+  if (q && prevQuad) cornerMove = Math.max(...q.map((p, i) => dist(p, prevQuad[i])));
+  prevQuad = q;
+  shownQuad = q ? (shownQuad ? q.map((p, i) => ({ x: shownQuad[i].x * 0.5 + p.x * 0.5, y: shownQuad[i].y * 0.5 + p.y * 0.5 })) : q) : null;
+
+  const now = performance.now();
+  let sharp = 0;
+  if (q) {
+    if (med.width !== MW || med.height !== MH) { med.width = MW; med.height = MH; }
+    mctx.drawImage(video, 0, 0, MW, MH);
+    const gm = grayOf(mctx.getImageData(0, 0, MW, MH)), k = MW / SW;
+    const xs = q.map((p) => p.x * k), ys = q.map((p) => p.y * k);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const ix = (x1 - x0) * 0.18, iy = (y1 - y0) * 0.18;
+    sharp = sharpness(gm, MW, MH, { x0: x0 + ix, x1: x1 - ix, y0: y0 + iy, y1: y1 - iy });
+    sharpHist.push({ t: now, v: sharp });
+  } else sharpHist = [];
+  sharpHist = sharpHist.filter((s) => s.t > now - 2500);
+  const peak = Math.max(1, ...sharpHist.map((s) => s.v));
+  const last = sharpHist.slice(-3).map((s) => s.v);
+  const settled = last.length === 3 && (Math.max(...last) - Math.min(...last)) / Math.max(...last) < 0.15;
+  focusRatio = q ? sharp / peak : 0;
+  // ピントの判定: 鮮明さが直近の最高値に近く、値が落ち着いていること
+  const focused = !!q && sharp > 25 && focusRatio > 0.8 && settled;
+  const steady = !!q && motion < 3.5 && cornerMove < SW * 0.02;
+
+  if (phase === "turn") {
+    if (!q || motion > 8) sawChange = true;
+    if (sawChange && steady) phase = "settle";
+  }
+  if (phase === "search" || phase === "settle") {
+    if (!q) phase = "search";
+    else if (settings.auto && steady && focused) { phase = "count"; t0 = now; }
+    else phase = "settle";
+  } else if (phase === "count") {
+    if (!settings.auto || !q || motion > 5 || cornerMove > SW * 0.03) phase = q ? "settle" : "search";
+    else if (now - t0 >= 1000) {
+      if (lastCapGray && meanDiff(lastCapGray, g) < 4) { phase = "turn"; sawChange = false; }
+      else { capture(q, g); return; }
+    }
+  }
+
+  const statusText = {
+    search: "ページを探しています",
+    settle: settings.auto ? "ピントを合わせています…" : "手動撮影：シャッターを押してください",
+    count: `撮影まで ${Math.max(0, (1000 - (now - t0)) / 1000).toFixed(1)} 秒`,
+    turn: "撮影しました。ページをめくってください",
+  }[phase];
+  setStatus(phase, statusText);
+  $("focusBar").style.width = `${Math.round(Math.min(1, focusRatio) * 100)}%`;
+  drawOverlay();
+}
+function drawOverlay() {
+  const dpr = window.devicePixelRatio || 1, cw = overlay.clientWidth, ch = overlay.clientHeight;
+  if (overlay.width !== Math.round(cw * dpr) || overlay.height !== Math.round(ch * dpr)) { overlay.width = Math.round(cw * dpr); overlay.height = Math.round(ch * dpr); }
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, cw, ch);
+  if (!shownQuad || !video.videoWidth) return;
+  const vw = video.videoWidth, vh = video.videoHeight, sc = Math.min(cw / vw, ch / vh), ox = (cw - vw * sc) / 2, oy = (ch - vh * sc) / 2, k = vw / SW;
+  const pts = shownQuad.map((p) => ({ x: ox + p.x * k * sc, y: oy + p.y * k * sc }));
+  const col = phase === "count" ? "#5fd3ac" : phase === "turn" ? "rgba(255,255,255,0.75)" : "#f0b15a";
+  octx.beginPath(); pts.forEach((p, i) => (i ? octx.lineTo(p.x, p.y) : octx.moveTo(p.x, p.y))); octx.closePath();
+  octx.fillStyle = phase === "count" ? "rgba(95,211,172,0.16)" : "rgba(240,177,90,0.08)"; octx.fill();
+  octx.lineWidth = 3; octx.strokeStyle = col; octx.setLineDash(phase === "settle" ? [10, 6] : []); octx.stroke(); octx.setLineDash([]);
+  for (const p of pts) { octx.beginPath(); octx.arc(p.x, p.y, 6, 0, Math.PI * 2); octx.fillStyle = col; octx.fill(); }
+  if (phase === "count") {
+    const cx = pts.reduce((a, p) => a + p.x, 0) / 4, cy = pts.reduce((a, p) => a + p.y, 0) / 4;
+    const f = Math.min(1, (performance.now() - t0) / 1000);
+    octx.beginPath(); octx.arc(cx, cy, 30, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
+    octx.lineWidth = 6; octx.strokeStyle = "#5fd3ac"; octx.stroke();
+  }
+}
+async function capture(qSmall, gSmall) {
+  phase = "busy"; flash(); shutterSound(); setStatus("turn", "保存しています…");
+  try {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const full = document.createElement("canvas"); full.width = vw; full.height = vh;
+    full.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, vw, vh);
+    let quad = detectOnCanvas(full, 800);
+    if (!quad && qSmall) quad = qSmall.map((p) => ({ x: (p.x * vw) / SW, y: (p.y * vw) / SW }));
+    const n = await processImage(full, quad);
+    lastCapGray = gSmall; toast(n === 2 ? "見開きを2ページとして追加しました" : `${pages.length}ページ目を追加しました`);
+  } catch (e) { toast("撮影に失敗しました。もう一度お試しください"); }
+  phase = "turn"; sawChange = false; shownQuad = null;
+}
+
+// ---------- 写真から取り込む（ライブカメラが使えない場合） ----------
+async function loadImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const im = new Image(); im.src = url; await im.decode();
+    const s = Math.min(1, 3600 / Math.max(im.naturalWidth, im.naturalHeight));
+    const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s);
+    c.getContext("2d", { willReadFrequently: true }).drawImage(im, 0, 0, c.width, c.height);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+function defaultQuad(c) { const m = 0.04; return [{ x: c.width * m, y: c.height * m }, { x: c.width * (1 - m), y: c.height * m }, { x: c.width * (1 - m), y: c.height * (1 - m) }, { x: c.width * m, y: c.height * (1 - m) }]; }
+async function handleFiles(files, review) {
+  files = [...files]; if (!files.length) return;
+  if (review && files.length === 1) { const c = await loadImage(files[0]); openReview(c, detectOnCanvas(c, 800) || defaultQuad(c)); return; }
+  let added = 0;
+  for (let i = 0; i < files.length; i++) {
+    toast(`取り込み中 ${i + 1}/${files.length}`);
+    try { const c = await loadImage(files[i]); added += await processImage(c, detectOnCanvas(c, 800)); } catch (e) {}
+  }
+  toast(`${added}ページを追加しました`);
+}
+$("snapBtn").onclick = () => $("camInput").click();
+$("pickBtn").onclick = () => $("fileInput").click();
+$("camInput").onchange = (e) => { handleFiles(e.target.files, true); e.target.value = ""; };
+$("fileInput").onchange = (e) => { handleFiles(e.target.files, e.target.files.length === 1); e.target.value = ""; };
+
+// 四隅の調整画面
+let rv = null;
+const rc = $("reviewCanvas"), rctx = rc.getContext("2d");
+function openReview(img, quad) {
+  rv = { img, quad: quad.map((p) => ({ ...p })), drag: -1 };
+  $("review").hidden = false; requestAnimationFrame(drawReview);
+}
+function reviewGeom() {
+  const dpr = window.devicePixelRatio || 1, cw = rc.clientWidth, ch = rc.clientHeight;
+  if (rc.width !== Math.round(cw * dpr) || rc.height !== Math.round(ch * dpr)) { rc.width = Math.round(cw * dpr); rc.height = Math.round(ch * dpr); }
+  const pad = 28, sc = Math.min((cw - pad * 2) / rv.img.width, (ch - pad * 2) / rv.img.height);
+  return { dpr, cw, ch, sc, ox: (cw - rv.img.width * sc) / 2, oy: (ch - rv.img.height * sc) / 2 };
+}
+function drawReview() {
+  if (!rv) return;
+  const G = reviewGeom();
+  rctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); rctx.clearRect(0, 0, G.cw, G.ch);
+  rctx.drawImage(rv.img, G.ox, G.oy, rv.img.width * G.sc, rv.img.height * G.sc);
+  const pts = rv.quad.map((p) => ({ x: G.ox + p.x * G.sc, y: G.oy + p.y * G.sc }));
+  rctx.beginPath(); pts.forEach((p, i) => (i ? rctx.lineTo(p.x, p.y) : rctx.moveTo(p.x, p.y))); rctx.closePath();
+  rctx.fillStyle = "rgba(95,211,172,0.14)"; rctx.fill(); rctx.lineWidth = 2.5; rctx.strokeStyle = "#5fd3ac"; rctx.stroke();
+  pts.forEach((p, i) => {
+    rctx.beginPath(); rctx.arc(p.x, p.y, rv.drag === i ? 16 : 12, 0, Math.PI * 2);
+    rctx.fillStyle = "rgba(95,211,172,0.35)"; rctx.fill(); rctx.lineWidth = 2.5; rctx.strokeStyle = "#ffffff"; rctx.stroke();
+  });
+}
+function rpos(e) { const r = rc.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+rc.addEventListener("pointerdown", (e) => {
+  if (!rv) return; const G = reviewGeom(), p = rpos(e);
+  let best = -1, bd = 48;
+  rv.quad.forEach((q, i) => { const d = Math.hypot(G.ox + q.x * G.sc - p.x, G.oy + q.y * G.sc - p.y); if (d < bd) { bd = d; best = i; } });
+  if (best >= 0) { rv.drag = best; rc.setPointerCapture(e.pointerId); drawReview(); }
+});
+rc.addEventListener("pointermove", (e) => {
+  if (!rv || rv.drag < 0) return; const G = reviewGeom(), p = rpos(e);
+  rv.quad[rv.drag] = { x: Math.min(rv.img.width, Math.max(0, (p.x - G.ox) / G.sc)), y: Math.min(rv.img.height, Math.max(0, (p.y - G.oy) / G.sc)) };
+  drawReview();
+});
+const endDrag = () => { if (rv) { rv.drag = -1; drawReview(); } };
+rc.addEventListener("pointerup", endDrag); rc.addEventListener("pointercancel", endDrag);
+window.addEventListener("resize", () => { if (rv) drawReview(); });
+$("reviewCancel").onclick = () => { rv = null; $("review").hidden = true; };
+$("reviewOk").onclick = async () => {
+  if (!rv) return; const { img, quad } = rv; rv = null; $("review").hidden = true;
+  flash(); shutterSound();
+  const n = await processImage(img, quad);
+  toast(n === 2 ? "見開きを2ページとして追加しました" : `${pages.length}ページ目を追加しました`);
+};
+
+// シャッター: ライブなら今すぐ撮影、そうでなければスマホのカメラを開く
+$("shutter").onclick = () => {
+  if (stream && phase !== "busy") {
+    const g = prevGray;
+    capture(prevQuad, g);
+  } else if (!stream) $("camInput").click();
+};
+
+renderStrip();
+startCamera();
+})();
+</script>
+</body>
+</html>
