@@ -219,6 +219,10 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
   <div class="sheet" role="dialog" aria-label="設定">
     <h3>撮影と仕上げの設定</h3>
     <div class="field"><span>書名（PDFのファイル名）</span><input type="text" id="bookName" placeholder="例：日本の庭園 第2版"></div>
+    <div class="field"><span>自動撮影のきっかけ</span>
+      <div class="seg"><label><input type="radio" name="trigger" value="turn" checked>ページめくり</label><label><input type="radio" name="trigger" value="t3">3秒ごと</label><label><input type="radio" name="trigger" value="t5">5秒ごと</label></div>
+      <p class="hint">「ページめくり」は、ページをめくる動きのあと、止まってピントが0.5秒合ったら撮影します。うまく撮れないときは「3秒ごと」「5秒ごと」のタイマー撮影にしてください（その間にページをめくります）。</p>
+    </div>
     <div class="field"><span>綴じ方向</span>
       <div class="seg"><label><input type="radio" name="dir" value="rtl" checked>右綴じ（縦書き）</label><label><input type="radio" name="dir" value="ltr">左綴じ（横書き）</label></div>
       <p class="hint">見開きを左右のページに分けたときの順番に使います。縦書きの本は右ページが先になります。</p>
@@ -228,6 +232,8 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
       <p class="hint">「AI向け白黒」は影や紙の黄ばみを取り除いて文字を濃くし、ファイルも小さくなります。図や写真が大事な本は「カラー」にしてください。</p>
     </div>
     <label class="toggle"><input type="checkbox" id="debugChk"><span class="switch"></span><span><b>認識の様子を表示</b>（文字と判断した部分をオレンジ、白い紙を青で表示します。うまく認識しないときの確認用）</span></label>
+    <button class="btn" id="saveFrame">今のカメラ画面を保存（調整用）</button>
+    <p class="hint">うまく認識しないときは、本を構えた状態でこのボタンを押して保存した画像を送ってください。認識の調整に使います。</p>
     <p class="hint">本は手に持ったままで大丈夫です。文字のある部分を見つけて撮影するので、指が写ったり、ページが反ったり傾いたりしていても認識します。撮影したページはこの端末の中だけで処理され、外部には送られません。</p>
     <div class="actions"><button class="btn danger" id="clearAll">全ページを削除</button><button class="btn primary" id="closeSettings">閉じる</button></div>
   </div>
@@ -266,7 +272,7 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
 const $ = (id) => document.getElementById(id);
 
 // ---------- 設定 ----------
-const settings = { dir: "rtl", finish: "bw", auto: true, name: "", v: 2 };
+const settings = { dir: "rtl", finish: "bw", auto: true, trigger: "turn", name: "", v: 2 };
 try {
   const stored = JSON.parse(localStorage.getItem("jisui-settings") || "{}");
   if (stored.v !== 2) delete stored.finish; // 旧版の設定はAI向けの仕上げに切り替える
@@ -275,7 +281,7 @@ try {
 } catch (e) {}
 function saveSettings() { try { localStorage.setItem("jisui-settings", JSON.stringify(settings)); } catch (e) {} }
 saveSettings();
-for (const k of ["dir", "finish"]) {
+for (const k of ["dir", "finish", "trigger"]) {
   document.querySelectorAll(`input[name="${k}"]`).forEach((r) => {
     r.checked = r.value === settings[k];
     r.addEventListener("change", () => { settings[k] = r.value; saveSettings(); });
@@ -391,14 +397,13 @@ function findPages(img, g, w, h) {
     const cx = (c.sx / c.text + 0.5) / bw, cy = (c.sy / c.text + 0.5) / bh;
     if (cx > 0.2 && cx < 0.8 && cy > 0.2 && cy < 0.8 && (!best || c.text > best.text)) best = c;
   }
-  if (!best || best.text < nb * 0.05 || best.x1 < 0) return { reason: "notext", grid };
-  // 文字が画面の端まで続いているときは、ページがはみ出して文字が切れている
-  if (best.x0 === 0 || best.y0 === 0 || best.x1 === bw - 1 || best.y1 === bh - 1) return { reason: "edge", grid };
+  if (!best || best.text < nb * 0.03 || best.x1 < 0) return { reason: "notext", grid };
+  // 文字が画面の端まで続いているときは、ページがはみ出しているかもしれない（撮影はするが注意を出す）
+  const edge = best.x0 === 0 || best.y0 === 0 || best.x1 === bw - 1 || best.y1 === bh - 1;
   // 文字のある範囲に1マス分の余白をつけて切り出す
   const x0 = Math.max(0, (best.x0 - 1) * B), y0 = Math.max(0, (best.y0 - 1) * B);
   const rect = { x: x0, y: y0, w: Math.min(w, (best.x1 + 2) * B) - x0, h: Math.min(h, (best.y1 + 2) * B) - y0 };
-  if (rect.w * rect.h < w * h * 0.1) return { reason: "small", grid };
-  return { rect, grid, text: best.text / nb };
+  return { rect, grid, edge, text: best.text / nb };
 }
 function detectOnCanvas(c, targetW) {
   const s = Math.min(1, targetW / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
@@ -742,7 +747,8 @@ const tiny = document.createElement("canvas"), tctx = tiny.getContext("2d", { wi
 const gridCanvas = document.createElement("canvas");
 let stream = null, phase = "search", t0 = 0, prevTiny = null, prevRect = null, shownRect = null;
 let lastGrid = null, lastReason = "", lastText = 0, missCount = 0, missRun = 0, lastMotion = 0;
-let sharpHist = [], sawChange = true, focusRatio = 0, wakeLock = null;
+let sharpHist = [], sawChange = true, focusRatio = 0, wakeLock = null, lastCapTiny = null;
+const meanTinyDiff = (a, b) => { if (!a || !b || a.length !== b.length) return 0; let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
 
 async function startCamera() {
   $("fbTitle").textContent = "カメラを準備しています…";
@@ -807,19 +813,27 @@ function analyze() {
   // ② ピント: 文字の範囲の鮮明さが、直近の最高値に近く、落ち着いているか（ぶれた画像も鮮明さが下がるので撮らない）
   const now = performance.now();
   let sharp = 0;
-  if (r) { sharp = sharpness(gm, MW, MH, { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }); sharpHist.push({ t: now, v: sharp }); }
+  const timerSec = settings.auto ? { t3: 3, t5: 5 }[settings.trigger] || 0 : 0;
+  // タイマー撮影では本を認識できなくても撮るので、画面の中央でピントを測る
+  const fbox = r ? { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h } : timerSec ? { x0: MW * 0.2, x1: MW * 0.8, y0: MH * 0.2, y1: MH * 0.8 } : null;
+  if (fbox) { sharp = sharpness(gm, MW, MH, fbox); sharpHist.push({ t: now, v: sharp }); }
   else sharpHist = [];
   sharpHist = sharpHist.filter((s) => s.t > now - 2500);
   const peak = Math.max(1, ...sharpHist.map((s) => s.v));
   const last = sharpHist.slice(-3).map((s) => s.v);
   const settled = last.length === 3 && (Math.max(...last) - Math.min(...last)) / Math.max(...last) < 0.25;
-  focusRatio = r ? sharp / peak : 0;
+  focusRatio = fbox ? sharp / peak : 0;
   const focused = !!r && sharp > 6 && focusRatio > 0.8 && settled;
   const steady = !!r && motion < 6 && move < 0.08;
 
+  if (timerSec) {
+    // タイマー撮影: 一定の間隔で、ぶれていなければ撮る
+    if (phase !== "timer") { phase = "timer"; t0 = now; }
+    else if (now - t0 >= timerSec * 1000 && motion < 8 && focusRatio > 0.7) { capture(r); return; }
+  } else if (phase === "timer") phase = "search";
   if (phase === "turn") {
-    // 撮影後は、ページをめくる大きな動き（または本が一度画面から外れる）を待つ
-    if (motion > 10 || missRun >= 8) sawChange = true;
+    // 撮影後は、ページをめくる動き（大きな動き、本が一度隠れる、または画面の中身が変わる）を待つ
+    if (motion > 8 || missRun >= 8 || (lastCapTiny && meanTinyDiff(gt, lastCapTiny) > 8 && motion < 6)) sawChange = true;
     if (sawChange && steady) phase = "settle";
   }
   if (phase === "search" || phase === "settle") {
@@ -842,8 +856,10 @@ function analyze() {
     settle: settings.auto ? "本を認識しました・ピント合わせ中" : "手動撮影：シャッターを押してください",
     count: `ピントOK・撮影まで ${Math.max(0, (CAPTURE_DELAY - (now - t0)) / 1000).toFixed(1)} 秒`,
     turn: "撮影しました。ページをめくってください",
+    timer: `タイマー撮影：あと ${Math.max(0, timerSec - (now - t0) / 1000).toFixed(1)} 秒`,
   }[phase];
-  setStatus(phase, statusText);
+  const statusShown = phase === "settle" && det.edge ? "本を認識しました（端が切れているかも。少し離すと確実です）" : statusText;
+  setStatus(phase === "timer" ? "count" : phase, statusShown);
   $("focusBar").style.width = `${Math.round(Math.min(1, focusRatio) * 100)}%`;
   $("diag").hidden = !settings.debug;
   if (settings.debug) $("diag").textContent = `文字 ${Math.round(lastText * 100)}% · 動き ${motion.toFixed(1)} · ピント ${Math.round(focusRatio * 100)}%`;
@@ -877,7 +893,7 @@ function drawOverlay() {
   }
 }
 async function capture(rMed) {
-  phase = "busy"; flash(); shutterSound(); setStatus("turn", "保存しています…");
+  phase = "busy"; flash(); shutterSound(); setStatus("turn", "保存しています…"); lastCapTiny = prevTiny;
   try {
     const vw = video.videoWidth, vh = video.videoHeight, k = vw / MW;
     const full = document.createElement("canvas"); full.width = vw; full.height = vh;
@@ -888,6 +904,20 @@ async function capture(rMed) {
   } catch (e) { toast("撮影に失敗しました。もう一度お試しください"); }
   phase = "turn"; sawChange = false; shownRect = null;
 }
+
+// 調整用: 今のカメラ画面をそのまま保存する（送ってもらって認識の調整に使う）
+$("saveFrame").onclick = async () => {
+  if (!stream || !video.videoWidth) { toast("カメラが動いているときに使えます"); return; }
+  const c = document.createElement("canvas"); c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext("2d").drawImage(video, 0, 0);
+  const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.9));
+  const name = `jisui-check_文字${Math.round(lastText * 100)}_動き${lastMotion.toFixed(1)}_ピント${Math.round(focusRatio * 100)}_${lastReason || "ok"}.jpg`;
+  const file = new File([blob], name, { type: "image/jpeg" });
+  try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; } }
+  catch (e) { if (e && e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+};
 
 // ---------- 写真から取り込む（ライブカメラが使えない場合） ----------
 async function loadImage(file) {
