@@ -227,6 +227,10 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
       <div class="seg"><label><input type="radio" name="dir" value="rtl" checked>右綴じ（縦書き）</label><label><input type="radio" name="dir" value="ltr">左綴じ（横書き）</label></div>
       <p class="hint">見開きを左右のページに分けたときの順番に使います。縦書きの本は右ページが先になります。</p>
     </div>
+    <div class="field"><span>本の向きの補正</span>
+      <div class="seg"><label><input type="radio" name="orient" value="auto" checked>自動</label><label><input type="radio" name="orient" value="1">右に90°</label><label><input type="radio" name="orient" value="3">左に90°</label><label><input type="radio" name="orient" value="0">しない</label></div>
+      <p class="hint">「自動」は文字の並びから本の向きを判断して、横向きや斜めに撮ったページをまっすぐにします。向きが違うページが出るときは、いつもの持ち方に合わせて選んでください（本の上が画面の左にくる持ち方なら「右に90°」）。1ページずつなら、ページを開いて「回転」でも直せます。</p>
+    </div>
     <div class="field"><span>仕上げ</span>
       <div class="seg"><label><input type="radio" name="finish" value="bw" checked>AI向け白黒</label><label><input type="radio" name="finish" value="gray">グレー</label><label><input type="radio" name="finish" value="color">カラー</label></div>
       <p class="hint">「AI向け白黒」は影や紙の黄ばみを取り除いて文字を濃くし、ファイルも小さくなります。図や写真が大事な本は「カラー」にしてください。</p>
@@ -253,7 +257,7 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
 <div class="full" id="viewer" hidden>
   <div class="bar top"><span class="title" id="viewerTitle">1 / 1</span><button class="btn" id="viewerClose">閉じる</button></div>
   <div class="stage"><img id="viewerImg" alt="撮影したページ"></div>
-  <div class="bar"><div style="display:flex;gap:8px"><button class="btn" id="moveL">← 前へ移動</button><button class="btn" id="moveR">後ろへ移動 →</button></div><button class="btn danger" id="delPage">このページを削除</button></div>
+  <div class="bar"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="moveL">← 前へ</button><button class="btn" id="moveR">後ろへ →</button><button class="btn" id="rotPage">↻ 回転</button></div><button class="btn danger" id="delPage">このページを削除</button></div>
 </div>
 
 <div class="full" id="review" hidden>
@@ -272,7 +276,7 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
 const $ = (id) => document.getElementById(id);
 
 // ---------- 設定 ----------
-const settings = { dir: "rtl", finish: "bw", auto: true, trigger: "turn", name: "", v: 2 };
+const settings = { dir: "rtl", finish: "bw", auto: true, trigger: "turn", orient: "auto", name: "", v: 2 };
 try {
   const stored = JSON.parse(localStorage.getItem("jisui-settings") || "{}");
   if (stored.v !== 2) delete stored.finish; // 旧版の設定はAI向けの仕上げに切り替える
@@ -281,7 +285,7 @@ try {
 } catch (e) {}
 function saveSettings() { try { localStorage.setItem("jisui-settings", JSON.stringify(settings)); } catch (e) {} }
 saveSettings();
-for (const k of ["dir", "finish", "trigger"]) {
+for (const k of ["dir", "finish", "trigger", "orient"]) {
   document.querySelectorAll(`input[name="${k}"]`).forEach((r) => {
     r.checked = r.value === settings[k];
     r.addEventListener("change", () => { settings[k] = r.value; saveSettings(); });
@@ -369,8 +373,8 @@ function findPages(img, g, w, h) {
   for (let i = 0; i < nb; i++) {
     // 文字: 色味のない紙の上に、細かい濃淡がある（地の明るさ＝平均＋ばらつき が紙に近い）
     if (chroma[i] > 40) continue;
-    if (dens[i] >= 0.04 && dens[i] <= 0.6 && mean[i] + spread[i] >= paper * 0.82 && mean[i] >= paper * 0.7) kind[i] = 1;
-    else if (dens[i] < 0.04 && mean[i] >= paper * 0.8) kind[i] = 2;
+    if (dens[i] >= 0.1 && dens[i] <= 0.7 && mean[i] + spread[i] >= paper * 0.82 && mean[i] >= paper * 0.6) kind[i] = 1;
+    else if (dens[i] < 0.1 && mean[i] >= paper * 0.8) kind[i] = 2;
   }
   const grid = { kind, bw, bh, B };
   if (paper < 50) return { reason: "dark", grid };
@@ -522,27 +526,127 @@ function enhance(c, mode) {
   return c;
 }
 function toBlob(c) { return new Promise((res) => c.toBlob(res, "image/jpeg", settings.finish === "color" ? 0.82 : 0.75)); }
-// のど（見開きの綴じ目）は、中央付近で一番幅の広い「文字のない縦の帯」として探す。見つからなければ -1
+// ---------- 向きの自動補正 ----------
+// 文字の行がそろう角度を探して、傾きと90°単位の向きを直す。
+// 行の始まりはそろい、終わりは段落の最後で短くなる（でこぼこになる）ことから、本の上（縦書き）または左（横書き）の側を判断する。
+// 判断できないページ（白紙に近いなど）は、前のページの向きを使う。
+// これまでのページで判断した向きの集計（同じ持ち方で撮り続けることが多いので、迷ったら多い方に合わせる）
+const orientVotes = new Map();
+function detectOrientation(c) {
+  const s = Math.min(1, 900 / Math.max(c.width, c.height)), w = Math.round(c.width * s), h = Math.round(c.height * s);
+  const t = document.createElement("canvas"); t.width = w; t.height = h;
+  const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
+  const g = grayOf(tc.getImageData(0, 0, w, h)), px = [], py = [];
+  // 文字が集まる中央部分だけを見る（指・机・ページの束の線を避ける）
+  const x0 = Math.round(w * 0.12), x1 = Math.round(w * 0.88), y0 = Math.round(h * 0.12), y1 = Math.round(h * 0.88);
+  for (let y = y0; y < y1; y++) for (let x = x0, i = y * w + x0; x < x1; x++, i++) {
+    if (Math.abs(g[i + 1] - g[i - 1]) + Math.abs(g[i + w] - g[i - w]) > 40) { px.push(x); py.push(y); }
+  }
+  if (px.length < 2000) return null;
+  const step = Math.max(1, Math.floor(px.length / 40000)), n = Math.ceil(px.length / step);
+  const X = new Float32Array(n), Y = new Float32Array(n);
+  for (let i = 0, j = 0; j < n; i += step, j++) { X[j] = px[i]; Y[j] = py[i]; }
+  const D = Math.ceil(Math.hypot(w, h)) + 2, hist = new Float32Array(D * 2);
+  const proj = (vertical, cs, sn, j) => (vertical ? X[j] * cs + Y[j] * sn : -X[j] * sn + Y[j] * cs);
+  // 行の向き（横 or 縦）と傾きの候補ごとに、行と行間がくっきり分かれる度合いを測る
+  let best = null;
+  for (const vertical of [false, true]) for (let deg = -20; deg <= 20; deg += 1) {
+    const th = (deg * Math.PI) / 180, cs = Math.cos(th), sn = Math.sin(th);
+    hist.fill(0);
+    for (let j = 0; j < n; j++) hist[(proj(vertical, cs, sn, j) + D) | 0]++;
+    let score = 0; for (let k = 0; k < hist.length; k++) score += hist[k] * hist[k];
+    if (!best || score > best.score) best = { score, vertical, th };
+  }
+  const { vertical, th } = best, cs = Math.cos(th), sn = Math.sin(th);
+  // 行ごとに、始まりと終わりの位置を集める
+  hist.fill(0);
+  const V = new Float32Array(n), U = new Float32Array(n);
+  for (let j = 0; j < n; j++) {
+    V[j] = proj(vertical, cs, sn, j);
+    hist[(V[j] + D) | 0]++;
+  }
+  // 行に沿った方向の座標（横書きの行なら左→右、縦の行なら上→下が増える向き）
+  for (let j = 0; j < n; j++) U[j] = vertical ? -X[j] * sn + Y[j] * cs : X[j] * cs + Y[j] * sn;
+  const nz = [...hist].filter((v) => v > 0).sort((a, b) => a - b);
+  const thr = 0.3 * nz[Math.floor(nz.length * 0.9)];
+  const bandOf = new Int32Array(hist.length).fill(-1), bands = [];
+  for (let k = 0; k < hist.length; k++) {
+    if (hist[k] > thr) {
+      if (!bands.length || bands[bands.length - 1].b < k - 2) bands.push({ a: k, b: k });
+      bands[bands.length - 1].b = k; bandOf[k] = bands.length - 1;
+    }
+  }
+  const us = bands.map(() => []);
+  for (let j = 0; j < n; j++) { const b = bandOf[(V[j] + D) | 0]; if (b >= 0) us[b].push(U[j]); }
+  let lines = [];
+  us.forEach((u, i) => {
+    if (bands[i].b - bands[i].a < 2 || u.length < 20) return;
+    u.sort((a, b) => a - b);
+    lines.push({ start: u[Math.floor(u.length * 0.01)], end: u[Math.floor(u.length * 0.99)] });
+  });
+  const lens = lines.map((l) => l.end - l.start).sort((a, b) => a - b), medL = lens[lens.length >> 1] || 0;
+  lines = lines.filter((l) => l.end - l.start > medL * 0.3);
+  // そろっている度合い: 位置が近い行のまとまり（左右や上下の2ページ分まで）に入る行の割合
+  const binW = Math.max(4, medL * 0.04);
+  const aligned = (vals) => {
+    const m = new Map();
+    vals.forEach((v) => { const k = Math.round(v / binW); m.set(k, (m.get(k) || 0) + 1); });
+    const sums = [...m.keys()].map((k) => [k, (m.get(k - 1) || 0) + (m.get(k) || 0) + (m.get(k + 1) || 0)]).sort((a, b) => b[1] - a[1]);
+    let total = 0; const used = [];
+    for (const [k, sum] of sums) {
+      if (used.some((u) => Math.abs(u - k) <= 2)) continue;
+      used.push(k); total += sum; if (used.length === 2) break;
+    }
+    return total / vals.length;
+  };
+  const rot = (startAtLow) => {
+    // 行の始まりの側を、縦書きなら本の上、横書きなら本の左に持ってくる回転（時計回り90°単位）
+    const startSide = vertical ? (startAtLow ? "top" : "bottom") : (startAtLow ? "left" : "right");
+    const order = ["top", "right", "bottom", "left"], target = settings.dir === "rtl" ? "top" : "left";
+    return (order.indexOf(target) - order.indexOf(startSide) + 4) % 4;
+  };
+  let quarter = null, margin = 0;
+  if (lines.length >= 10) {
+    const aS = aligned(lines.map((l) => l.start)), aE = aligned(lines.map((l) => l.end));
+    margin = Math.abs(aS - aE);
+    if (margin > 0.02) {
+      quarter = rot(aS > aE);
+      orientVotes.set(quarter, (orientVotes.get(quarter) || 0) + margin);
+    }
+  }
+  let topVote = null;
+  for (const [q, v] of orientVotes) if (!topVote || v > topVote[1]) topVote = [q, v];
+  // はっきりしないときは、これまでの多数派に合わせる
+  if (topVote && (quarter === null || margin < 0.06)) quarter = topVote[0];
+  if (quarter === null) return { angle: -th, quarter: 0, sure: false };
+  return { angle: -th, quarter, sure: true };
+}
+// 回転した画像を作る（angle はラジアン、時計回りが正）
+function rotateCanvas(c, angle) {
+  if (Math.abs(angle) < 0.003) return c;
+  const cs = Math.abs(Math.cos(angle)), sn = Math.abs(Math.sin(angle));
+  const o = document.createElement("canvas");
+  o.width = Math.round(c.width * cs + c.height * sn); o.height = Math.round(c.width * sn + c.height * cs);
+  const ctx = o.getContext("2d"); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, o.width, o.height);
+  ctx.translate(o.width / 2, o.height / 2); ctx.rotate(angle); ctx.drawImage(c, -c.width / 2, -c.height / 2);
+  return o;
+}
+
+// のど（見開きの綴じ目）を探す。のどはページが沈み込んで影になるので、中央付近で一番暗い縦の線（折り目）で分ける。
+// 文字の列や見出しのまわりの余白はそこまで暗くならないので区別できる。はっきりした影がなければ -1
 function findGutter(c) {
   const s = Math.min(1, 800 / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
   const t = document.createElement("canvas"); t.width = w; t.height = h;
   const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
-  const g = grayOf(tc.getImageData(0, 0, w, h)), col = new Float32Array(w), lum = new Float32Array(w);
-  const ya = Math.round(h * 0.1), yb = Math.round(h * 0.9);
-  for (let y = ya; y < yb; y++) for (let x = 1, i = y * w + 1; x < w - 1; x++, i++) {
-    if (Math.abs(g[i + 1] - g[i - 1]) > 20) col[x]++;
-    lum[x] += g[i];
-  }
-  const rows = yb - ya, xa = Math.round(w * 0.3), xb = Math.round(w * 0.7);
-  let best = null, run = null;
-  for (let x = xa; x <= xb; x++) {
-    const empty = x < xb && (col[x - 1] + col[x] + col[x + 1]) / 3 / rows < 0.01;
-    if (empty) { if (!run) run = { a: x, b: x }; run.b = x; }
-    else if (run) { if (!best || run.b - run.a > best.b - best.a) best = run; run = null; }
-  }
-  if (!best || best.b - best.a < w * 0.02) return -1;
-  let mid = best.a, dark = Infinity;
-  for (let x = best.a; x <= best.b; x++) if (lum[x] < dark) { dark = lum[x]; mid = x; }
+  const g = grayOf(tc.getImageData(0, 0, w, h)), lum = new Float32Array(w);
+  const ya = Math.round(h * 0.1), yb = Math.round(h * 0.9), rows = yb - ya;
+  for (let y = ya; y < yb; y++) for (let x = 0, i = y * w; x < w; x++, i++) lum[x] += g[i];
+  const bright = (x) => { let s2 = 0; for (let k = -2; k <= 2; k++) s2 += lum[x + k]; return s2 / 5 / rows; };
+  const xs = [];
+  for (let x = Math.round(w * 0.3); x <= Math.round(w * 0.7); x++) xs.push(x);
+  const typical = xs.map(bright).sort((a, b) => a - b)[xs.length >> 1];
+  const mid = xs.reduce((a, x) => (bright(x) < bright(a) ? x : a));
+  if (bright(mid) > typical * 0.85) return -1;
   return Math.round(mid / s);
 }
 function cropCanvas(src, r) {
@@ -553,8 +657,12 @@ function cropCanvas(src, r) {
 }
 // region: { rect } は切り出しだけ、{ quad } は四隅を手で合わせた場合の歪み補正
 async function processImage(src, region) {
-  const page = region && region.quad ? warp(src, region.quad) : cropCanvas(src, (region && region.rect) || { x: 0, y: 0, w: src.width, h: src.height });
-  const parts = [], mid = page.width / page.height >= 1.2 ? findGutter(page) : -1;
+  let page = region && region.quad ? warp(src, region.quad) : cropCanvas(src, (region && region.rect) || { x: 0, y: 0, w: src.width, h: src.height });
+  // 本の向きと傾きを直す（手に持って横向き・斜めに撮っても、本が上向きになるように）
+  const o = detectOrientation(page), fixed = settings.orient === "auto" ? null : Number(settings.orient);
+  const quarter = fixed !== null ? fixed : o ? o.quarter : 0;
+  if (o || quarter) page = rotateCanvas(page, (o ? o.angle : 0) + (quarter * Math.PI) / 2);
+  const parts = [], mid = page.width / page.height >= 1.0 ? findGutter(page) : -1;
   if (mid > 0) {
     for (const [x, w] of [[0, mid], [mid, page.width - mid]]) {
       const c = document.createElement("canvas"); c.width = w; c.height = page.height;
@@ -635,6 +743,17 @@ function openViewer(i) {
 $("viewerClose").onclick = () => { $("viewer").hidden = true; };
 $("moveL").onclick = () => { if (viewIdx > 0) { [pages[viewIdx - 1], pages[viewIdx]] = [pages[viewIdx], pages[viewIdx - 1]]; saveOrder(); renderStrip(); openViewer(viewIdx - 1); } };
 $("moveR").onclick = () => { if (viewIdx < pages.length - 1) { [pages[viewIdx + 1], pages[viewIdx]] = [pages[viewIdx], pages[viewIdx + 1]]; saveOrder(); renderStrip(); openViewer(viewIdx + 1); } };
+$("rotPage").onclick = async () => {
+  const p = pages[viewIdx]; if (!p) return;
+  const im = new Image(); im.src = p.url; await im.decode();
+  const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+  c.getContext("2d").drawImage(im, 0, 0);
+  const r = rotateCanvas(c, Math.PI / 2), blob = await toBlob(r);
+  URL.revokeObjectURL(p.url);
+  Object.assign(p, { blob, url: URL.createObjectURL(blob), w: r.width, h: r.height });
+  store.put(p.id, { blob, w: r.width, h: r.height });
+  renderStrip(); openViewer(viewIdx);
+};
 $("delPage").onclick = () => {
   const [p] = pages.splice(viewIdx, 1); URL.revokeObjectURL(p.url); renderStrip();
   store.del(p.id); saveOrder();
