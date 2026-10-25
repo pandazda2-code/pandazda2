@@ -194,7 +194,7 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
     <h2 id="fbTitle">カメラを準備しています…</h2>
     <p id="fbText">本を暗めの机や布の上に置いて、ページ全体が画面に入るように構えてください。</p>
     <div class="row" id="fbButtons" hidden>
-      <button class="btn primary" id="snapBtn">カメラで1ページ撮る</button>
+      <button class="btn primary" id="snapBtn">カメラで見開きを撮る</button>
       <button class="btn" id="pickBtn">写真を選ぶ（複数可）</button>
     </div>
     <button class="linkish" id="retryCam" hidden>ライブカメラをもう一度試す</button>
@@ -217,16 +217,13 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
   <div class="sheet" role="dialog" aria-label="設定">
     <h3>撮影と仕上げの設定</h3>
     <div class="field"><span>書名（PDFのファイル名）</span><input type="text" id="bookName" placeholder="例：日本の庭園 第2版"></div>
-    <div class="field"><span>撮り方</span>
-      <div class="seg"><label><input type="radio" name="layout" value="single" checked>1ページずつ</label><label><input type="radio" name="layout" value="spread">見開き（左右に分割）</label></div>
-    </div>
     <div class="field"><span>綴じ方向</span>
       <div class="seg"><label><input type="radio" name="dir" value="rtl" checked>右綴じ（縦書き）</label><label><input type="radio" name="dir" value="ltr">左綴じ（横書き）</label></div>
-      <p class="hint">見開きを分ける順番と、PDFをめくる向きに使います。縦書きの本は右ページが先になります。</p>
+      <p class="hint">見開きを左右のページに分けたときの順番に使います。縦書きの本は右ページが先になります。</p>
     </div>
     <div class="field"><span>仕上げ</span>
-      <div class="seg"><label><input type="radio" name="finish" value="color" checked>カラー</label><label><input type="radio" name="finish" value="gray">グレー</label><label><input type="radio" name="finish" value="bw">くっきり白黒</label></div>
-      <p class="hint">「くっきり白黒」は影や紙の黄ばみを取り除き、文字を濃くします。文字だけの本におすすめです。</p>
+      <div class="seg"><label><input type="radio" name="finish" value="bw" checked>AI向け白黒</label><label><input type="radio" name="finish" value="gray">グレー</label><label><input type="radio" name="finish" value="color">カラー</label></div>
+      <p class="hint">「AI向け白黒」は影や紙の黄ばみを取り除いて文字を濃くし、ファイルも小さくなります。図や写真が大事な本は「カラー」にしてください。</p>
     </div>
     <p class="hint">うまく枠が出ないときは、白っぽい机を避けて、暗めの布や机の上に本を置いてください。撮影したページはこの端末の中だけで処理され、外部には送られません。</p>
     <div class="actions"><button class="btn danger" id="clearAll">全ページを削除</button><button class="btn primary" id="closeSettings">閉じる</button></div>
@@ -237,12 +234,9 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
   <div class="sheet" role="dialog" aria-label="PDFの保存">
     <h3>PDFができました</h3>
     <p class="hint" id="pdfInfo"></p>
-    <div class="actions" style="justify-content:stretch;flex-direction:column">
-      <button class="btn primary" id="pdfShare" hidden>共有メニューを開く（「ファイルに保存」など）</button>
-      <button class="btn" id="pdfDownload">ダウンロードする</button>
-      <a class="btn" id="pdfOpen" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">PDFを開く（開いた画面の共有ボタンから保存）</a>
-      <button class="btn" id="pdfClose">閉じる</button>
-    </div>
+    <button class="btn primary" id="pdfShare" hidden>共有メニューを開く（「ファイルに保存」など）</button>
+    <div id="pdfParts" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="actions"><button class="btn" id="pdfClose">閉じる</button></div>
     <p class="hint">撮影したページはこの端末に保存されているので、アプリを閉じても消えません。不要になったら設定の「全ページを削除」で消せます。</p>
   </div>
 </div>
@@ -269,10 +263,16 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
 const $ = (id) => document.getElementById(id);
 
 // ---------- 設定 ----------
-const settings = { layout: "single", dir: "rtl", finish: "color", auto: true, name: "" };
-try { Object.assign(settings, JSON.parse(localStorage.getItem("jisui-settings") || "{}")); } catch (e) {}
+const settings = { dir: "rtl", finish: "bw", auto: true, name: "", v: 2 };
+try {
+  const stored = JSON.parse(localStorage.getItem("jisui-settings") || "{}");
+  if (stored.v !== 2) delete stored.finish; // 旧版の設定はAI向けの仕上げに切り替える
+  delete stored.layout; delete stored.v;
+  Object.assign(settings, stored);
+} catch (e) {}
 function saveSettings() { try { localStorage.setItem("jisui-settings", JSON.stringify(settings)); } catch (e) {} }
-for (const k of ["layout", "dir", "finish"]) {
+saveSettings();
+for (const k of ["dir", "finish"]) {
   document.querySelectorAll(`input[name="${k}"]`).forEach((r) => {
     r.checked = r.value === settings[k];
     r.addEventListener("change", () => { settings[k] = r.value; saveSettings(); });
@@ -340,11 +340,11 @@ function polyArea(q) {
   for (let i = 0; i < 4; i++) { const p = q[i], r = q[(i + 1) % 4]; a += p.x * r.y - r.x * p.y; }
   return Math.abs(a) / 2;
 }
-// 明るい紙の領域のうち最大のものを探し、四隅（左上・右上・右下・左下）を返す
-function detectQuad(g, w, h) {
+// 明るい紙の領域（連結成分）を大きい順に返す。各成分は四隅の候補になる端点を持つ
+function components(g, w, h) {
   const t = otsu(g), n = w * h;
   const seen = new Uint8Array(n), stack = new Int32Array(n);
-  let best = null;
+  const list = [];
   for (let s = 0; s < n; s++) {
     if (seen[s] || g[s] <= t) continue;
     let sp = 0, size = 0; stack[sp++] = s; seen[s] = 1;
@@ -359,20 +359,72 @@ function detectQuad(g, w, h) {
       if (y > 0) { const j = i - w; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
       if (y < h - 1) { const j = i + w; if (!seen[j] && g[j] > t) { seen[j] = 1; stack[sp++] = j; } }
     }
-    if (!best || size > best.size) best = { size, minSi, maxSi, minDi, maxDi };
+    if (size >= n * 0.03) list.push({ size, minS, minSi, maxS, maxSi, minD, minDi, maxD, maxDi });
   }
-  if (!best || best.size < n * 0.12) return null;
+  return list.sort((a, b) => b.size - a.size);
+}
+// 複数の成分をまとめた四隅（左上・右上・右下・左下）
+function quadOf(cs, w) {
+  const pick = (key, idx, better) => cs.reduce((a, c) => (better(c[key], a[key]) ? c : a))[idx];
+  const lt = (a, b) => a < b, gt = (a, b) => a > b;
   const P = (i) => ({ x: (i % w) + 0.5, y: ((i / w) | 0) + 0.5 });
-  const q = [P(best.minSi), P(best.maxDi), P(best.maxSi), P(best.minDi)];
+  return [P(pick("minS", "minSi", lt)), P(pick("maxD", "maxDi", gt)), P(pick("maxS", "maxSi", gt)), P(pick("minD", "minDi", lt))];
+}
+// 縦長の本を開いた見開きらしい形か（横長・四角形・画面の十分な範囲を占める）
+function spreadShape(q, size, n) {
   const area = polyArea(q);
-  if (area < n * 0.12 || best.size / area < 0.72) return null;
-  return q;
+  if (area < n * 0.18 || size / area < 0.78) return false;
+  for (let i = 0; i < 4; i++) {
+    const a = q[(i + 3) % 4], b = q[i], c = q[(i + 1) % 4];
+    const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
+    const cos = (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1);
+    const deg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+    if (deg < 55 || deg > 125) return false;
+  }
+  const W = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, H = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
+  const r = W / H;
+  return r >= 1.05 && r <= 2.1;
+}
+// 見開きの四隅を探す。のどの影で左右のページが分かれて見える場合は2つをまとめる
+function findSpread(g, w, h) {
+  const list = components(g, w, h), n = w * h;
+  if (!list.length) return null;
+  const tries = [];
+  if (list[1] && list[1].size > list[0].size * 0.5) tries.push([list[0], list[1]]);
+  tries.push([list[0]]);
+  for (const cs of tries) {
+    const q = quadOf(cs, w);
+    if (spreadShape(q, cs.reduce((a, c) => a + c.size, 0), n)) return q;
+  }
+  return null;
+}
+// 見開きの左右それぞれで、文字らしい暗い点の割合を測る
+function inkFractions(g, w, h, q) {
+  const samples = [], side = [];
+  for (let j = 2; j < 78; j++) for (let i = 3; i < 117; i++) {
+    const u = i / 120, v = j / 80;
+    if (u > 0.45 && u < 0.55) continue; // のどの影は除く
+    const tx = q[0].x + (q[1].x - q[0].x) * u, ty = q[0].y + (q[1].y - q[0].y) * u;
+    const bx = q[3].x + (q[2].x - q[3].x) * u, by = q[3].y + (q[2].y - q[3].y) * u;
+    const x = Math.round(tx + (bx - tx) * v), y = Math.round(ty + (by - ty) * v);
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    samples.push(g[y * w + x]); side.push(u < 0.5 ? 0 : 1);
+  }
+  if (!samples.length) return [0, 0];
+  const paper = [...samples].sort((a, b) => a - b)[samples.length >> 1] * 0.7;
+  const dark = [0, 0], cnt = [0, 0];
+  samples.forEach((s, i) => { cnt[side[i]]++; if (s < paper) dark[side[i]]++; });
+  return [dark[0] / (cnt[0] || 1), dark[1] / (cnt[1] || 1)];
+}
+function looksLikeText([l, r]) {
+  const avg = (l + r) / 2;
+  return avg >= 0.012 && Math.max(l, r) >= 0.01 && avg <= 0.45;
 }
 function detectOnCanvas(c, targetW) {
   const s = Math.min(1, targetW / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
   const t = document.createElement("canvas"); t.width = w; t.height = h;
   const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
-  const q = detectQuad(grayOf(tc.getImageData(0, 0, w, h)), w, h);
+  const q = findSpread(grayOf(tc.getImageData(0, 0, w, h)), w, h);
   return q ? q.map((p) => ({ x: p.x / s, y: p.y / s })) : null;
 }
 function sharpness(g, w, h, box) {
@@ -484,19 +536,28 @@ function enhance(c, mode) {
   ctx.putImageData(img, 0, 0);
   return c;
 }
-function toBlob(c) { return new Promise((res) => c.toBlob(res, "image/jpeg", 0.86)); }
+function toBlob(c) { return new Promise((res) => c.toBlob(res, "image/jpeg", settings.finish === "color" ? 0.82 : 0.75)); }
+// のど（見開きの中央の綴じ目）は中央付近で一番暗い縦の線として探す
+function findGutter(c) {
+  const W = c.width, H = c.height, x0 = Math.round(W * 0.4), x1 = Math.round(W * 0.6), y0 = Math.round(H * 0.15), y1 = Math.round(H * 0.85);
+  const g = grayOf(c.getContext("2d", { willReadFrequently: true }).getImageData(x0, y0, x1 - x0, y1 - y0));
+  const cw = x1 - x0, ch = y1 - y0, col = new Float64Array(cw);
+  for (let y = 0; y < ch; y += 2) for (let x = 0; x < cw; x++) col[x] += g[y * cw + x];
+  let best = Math.round(W / 2), bv = Infinity;
+  for (let x = 6; x < cw - 6; x++) {
+    let s = 0; for (let k = -6; k <= 6; k++) s += col[x + k];
+    if (s < bv) { bv = s; best = x0 + x; }
+  }
+  return best;
+}
 async function processImage(src, quad) {
   const q = quad || [{ x: 0, y: 0 }, { x: src.width, y: 0 }, { x: src.width, y: src.height }, { x: 0, y: src.height }];
-  let page = warp(src, q);
-  const parts = [];
-  if (settings.layout === "spread") {
-    const half = Math.floor(page.width / 2);
-    for (const [x, w] of [[0, half], [half, page.width - half]]) {
-      const c = document.createElement("canvas"); c.width = w; c.height = page.height;
-      c.getContext("2d").drawImage(page, x, 0, w, page.height, 0, 0, w, page.height); parts.push(c);
-    }
-    if (settings.dir === "rtl") parts.reverse();
-  } else parts.push(page);
+  const page = warp(src, q), mid = findGutter(page), parts = [];
+  for (const [x, w] of [[0, mid], [mid, page.width - mid]]) {
+    const c = document.createElement("canvas"); c.width = w; c.height = page.height;
+    c.getContext("2d").drawImage(page, x, 0, w, page.height, 0, 0, w, page.height); parts.push(c);
+  }
+  if (settings.dir === "rtl") parts.reverse();
   for (const c of parts) {
     enhance(c, settings.finish);
     const blob = await toBlob(c);
@@ -588,60 +649,88 @@ $("clearAll").onclick = () => {
 // ---------- PDF ----------
 // Claudeのアーティファクト内かどうか（保存の方法が変わる）
 const inClaude = !!(window.claude && window.claude.use);
-let lastPdf = null;
-function showPdfSheet(blob, filename) {
-  if (lastPdf) URL.revokeObjectURL(lastPdf.url);
-  const file = new File([blob], filename, { type: "application/pdf" });
-  lastPdf = { blob, filename, file, url: URL.createObjectURL(blob) };
-  let canShare = false;
-  try { canShare = !inClaude && !!navigator.canShare && navigator.canShare({ files: [file] }); } catch (e) {}
-  $("pdfShare").hidden = !canShare;
-  $("pdfOpen").hidden = inClaude;
-  $("pdfOpen").href = lastPdf.url;
-  $("pdfInfo").textContent = `${filename}（${pages.length}ページ・${(blob.size / 1048576).toFixed(1)} MB）`;
-  $("pdfReady").hidden = false;
-}
-$("pdfClose").onclick = () => { $("pdfReady").hidden = true; };
-$("pdfShare").onclick = async () => {
-  if (!lastPdf) return;
-  try { await navigator.share({ files: [lastPdf.file], title: lastPdf.filename }); }
-  catch (e) { if (!e || e.name !== "AbortError") toast("共有メニューを開けませんでした。ほかの方法をお試しください"); }
-};
-$("pdfDownload").onclick = async () => {
-  if (!lastPdf) return;
+// AIに読み込ませやすいよう、1ファイルを100ページ・約28MBまでに分ける
+const MAX_PAGES = 100, MAX_BYTES = 28 * 1048576;
+let pdfParts = [];
+async function saveOne(part) {
   if (inClaude) {
     try {
       const dl = await window.claude.use("downloads");
       if (!dl) { toast("この画面では保存できませんでした"); return; }
-      await dl.save({ filename: lastPdf.filename, data: lastPdf.blob }); toast("PDFを保存しました");
+      await dl.save({ filename: part.filename, data: part.blob }); toast("PDFを保存しました");
     } catch (e) { toast(e && e.code === "declined" ? "保存をキャンセルしました" : "この画面では保存できませんでした"); }
     return;
   }
-  const a = document.createElement("a"); a.href = lastPdf.url; a.download = lastPdf.filename;
+  const a = document.createElement("a"); a.href = part.url; a.download = part.filename;
   document.body.appendChild(a); a.click(); a.remove();
+}
+function showPdfSheet(parts) {
+  pdfParts.forEach((p) => URL.revokeObjectURL(p.url));
+  pdfParts = parts;
+  const files = parts.map((p) => p.file);
+  let canShare = false;
+  try { canShare = !inClaude && !!navigator.canShare && navigator.canShare({ files }); } catch (e) {}
+  $("pdfShare").hidden = !canShare;
+  $("pdfShare").textContent = parts.length > 1 ? `共有メニューで${parts.length}ファイルをまとめて保存` : "共有メニューを開く（「ファイルに保存」など）";
+  const total = parts.reduce((a, p) => a + p.blob.size, 0);
+  $("pdfInfo").textContent = parts.length > 1
+    ? `全${pages.length}ページ・${(total / 1048576).toFixed(1)} MB。AIに読み込ませやすいよう、100ページごとに${parts.length}つのファイルに分けました。`
+    : `全${pages.length}ページ・${(total / 1048576).toFixed(1)} MB`;
+  const box = $("pdfParts"); box.textContent = "";
+  parts.forEach((p) => {
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+    const name = document.createElement("span"); name.style.cssText = "flex:1;min-width:0;font-size:13px;overflow-wrap:anywhere";
+    name.textContent = `${p.filename}（${p.from}〜${p.to}ページ）`;
+    const dl = document.createElement("button"); dl.className = "btn"; dl.textContent = "保存"; dl.onclick = () => saveOne(p);
+    row.append(name, dl);
+    if (!inClaude) {
+      const op = document.createElement("a"); op.className = "btn"; op.textContent = "開く"; op.href = p.url;
+      op.target = "_blank"; op.rel = "noopener"; op.style.textDecoration = "none"; row.append(op);
+    }
+    box.appendChild(row);
+  });
+  $("pdfReady").hidden = false;
+}
+$("pdfClose").onclick = () => { $("pdfReady").hidden = true; };
+$("pdfShare").onclick = async () => {
+  if (!pdfParts.length) return;
+  try { await navigator.share({ files: pdfParts.map((p) => p.file), title: pdfParts[0].filename }); }
+  catch (e) { if (!e || e.name !== "AbortError") toast("共有メニューを開けませんでした。「保存」ボタンをお試しください"); }
 };
 $("pdfBtn").onclick = async () => {
   if (!pages.length) return;
   if (!window.jspdf) { toast("PDF作成の部品を読み込めませんでした。通信状態を確認してください"); return; }
   const btn = $("pdfBtn"); btn.disabled = true;
   try {
-    const { jsPDF } = window.jspdf; let doc = null;
+    const groups = [];
     for (let i = 0; i < pages.length; i++) {
-      btn.textContent = `作成中 ${i + 1}/${pages.length}`;
-      const p = pages[i], wpt = 420, hpt = (420 * p.h) / p.w, orient = wpt > hpt ? "l" : "p";
-      if (!doc) doc = new jsPDF({ unit: "pt", format: [wpt, hpt], orientation: orient, compress: true });
-      else doc.addPage([wpt, hpt], orient);
-      const bytes = new Uint8Array(await p.blob.arrayBuffer());
-      doc.addImage(bytes, "JPEG", 0, 0, wpt, hpt, undefined, "NONE");
-      if (i % 5 === 4) await new Promise((r) => setTimeout(r));
+      const cur = groups[groups.length - 1];
+      if (!cur || cur.items.length >= MAX_PAGES || cur.bytes + pages[i].blob.size > MAX_BYTES) groups.push({ start: i, items: [], bytes: 0 });
+      const g = groups[groups.length - 1]; g.items.push(pages[i]); g.bytes += pages[i].blob.size;
     }
-    if (settings.dir === "rtl") { try { doc.viewerPreferences({ Direction: "R2L" }); } catch (e) {} }
-    try { doc.setProperties({ title: settings.name.trim() || "自炊PDF" }); } catch (e) {}
     const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
     const base = (settings.name.trim() || "本").replace(/[\\/:*?"<>|]/g, "_");
-    showPdfSheet(doc.output("blob"), `${base}_${stamp}.pdf`);
+    const { jsPDF } = window.jspdf, parts = [];
+    let done = 0;
+    for (const g of groups) {
+      let doc = null;
+      for (const p of g.items) {
+        btn.textContent = `作成中 ${++done}/${pages.length}`;
+        const wpt = 420, hpt = (420 * p.h) / p.w, orient = wpt > hpt ? "l" : "p";
+        if (!doc) doc = new jsPDF({ unit: "pt", format: [wpt, hpt], orientation: orient, compress: true });
+        else doc.addPage([wpt, hpt], orient);
+        doc.addImage(new Uint8Array(await p.blob.arrayBuffer()), "JPEG", 0, 0, wpt, hpt, undefined, "NONE");
+        if (done % 5 === 0) await new Promise((r) => setTimeout(r));
+      }
+      try { doc.setProperties({ title: settings.name.trim() || "自炊PDF" }); } catch (e) {}
+      const from = g.start + 1, to = g.start + g.items.length;
+      const filename = groups.length > 1 ? `${base}_${stamp}_p${from}-${to}.pdf` : `${base}_${stamp}.pdf`;
+      const blob = doc.output("blob");
+      parts.push({ blob, filename, from, to, url: URL.createObjectURL(blob), file: new File([blob], filename, { type: "application/pdf" }) });
+    }
+    showPdfSheet(parts);
   } catch (e) {
-    toast("PDFを作れませんでした。ページ数を減らしてもう一度お試しください");
+    toast("PDFを作れませんでした。もう一度お試しください");
   } finally { btn.textContent = "PDF作成"; btn.disabled = pages.length === 0; }
 };
 
@@ -668,7 +757,7 @@ async function startCamera() {
     phase = "search"; tick();
   } catch (e) {
     stream = null; video.hidden = true;
-    $("fbTitle").textContent = "1ページずつ撮影するモードで使えます";
+    $("fbTitle").textContent = "写真を1枚ずつ撮るモードで使えます";
     $("fbText").textContent = "この画面ではライブカメラを使えないため、スマホのカメラで1枚ずつ撮影します。撮った写真からページの範囲を自動で見つけて、まっすぐに補正します。本は暗めの机や布の上に置くと認識しやすくなります。";
     $("fbButtons").hidden = false; $("retryCam").hidden = false;
     $("autoWrap").hidden = true;
@@ -692,7 +781,16 @@ function analyze() {
   sctx.drawImage(video, 0, 0, SW, SH);
   const g = grayOf(sctx.getImageData(0, 0, SW, SH));
   const motion = meanDiff(prevGray, g); prevGray = g;
-  const q = detectQuad(g, SW, SH);
+  // ① 本（縦長の本の見開き）かどうか: 形と、左右に文字があることで判定する
+  const cand = findSpread(g, SW, SH);
+  let q = null, gm = null;
+  const k = MW / SW;
+  if (cand) {
+    if (med.width !== MW || med.height !== MH) { med.width = MW; med.height = MH; }
+    mctx.drawImage(video, 0, 0, MW, MH);
+    gm = grayOf(mctx.getImageData(0, 0, MW, MH));
+    if (looksLikeText(inkFractions(gm, MW, MH, cand.map((p) => ({ x: p.x * k, y: p.y * k }))))) q = cand;
+  }
   let cornerMove = 99;
   if (q && prevQuad) cornerMove = Math.max(...q.map((p, i) => dist(p, prevQuad[i])));
   prevQuad = q;
@@ -701,9 +799,6 @@ function analyze() {
   const now = performance.now();
   let sharp = 0;
   if (q) {
-    if (med.width !== MW || med.height !== MH) { med.width = MW; med.height = MH; }
-    mctx.drawImage(video, 0, 0, MW, MH);
-    const gm = grayOf(mctx.getImageData(0, 0, MW, MH)), k = MW / SW;
     const xs = q.map((p) => p.x * k), ys = q.map((p) => p.y * k);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
     const ix = (x1 - x0) * 0.18, iy = (y1 - y0) * 0.18;
@@ -728,7 +823,9 @@ function analyze() {
     else if (settings.auto && steady && focused) { phase = "count"; t0 = now; }
     else phase = "settle";
   } else if (phase === "count") {
-    if (!settings.auto || !q || motion > 5 || cornerMove > SW * 0.03) phase = q ? "settle" : "search";
+    // ② 本と認識したまま、ピントが合った状態が続いているか
+    const hold = !!q && motion < 4 && cornerMove < SW * 0.025 && sharp > 25 && focusRatio > 0.75;
+    if (!settings.auto || !hold) phase = q ? "settle" : "search";
     else if (now - t0 >= CAPTURE_DELAY) {
       if (lastCapGray && meanDiff(lastCapGray, g) < 4) { phase = "turn"; sawChange = false; }
       else { capture(q, g); return; }
@@ -736,9 +833,9 @@ function analyze() {
   }
 
   const statusText = {
-    search: "ページを探しています",
-    settle: settings.auto ? "ピントを合わせています…" : "手動撮影：シャッターを押してください",
-    count: `撮影まで ${Math.max(0, (CAPTURE_DELAY - (now - t0)) / 1000).toFixed(1)} 秒`,
+    search: "本の見開きを画面に入れてください",
+    settle: settings.auto ? "本を認識しました・ピント合わせ中" : "手動撮影：シャッターを押してください",
+    count: `ピントOK・撮影まで ${Math.max(0, (CAPTURE_DELAY - (now - t0)) / 1000).toFixed(1)} 秒`,
     turn: "撮影しました。ページをめくってください",
   }[phase];
   setStatus(phase, statusText);
@@ -773,7 +870,7 @@ async function capture(qSmall, gSmall) {
     let quad = detectOnCanvas(full, 800);
     if (!quad && qSmall) quad = qSmall.map((p) => ({ x: (p.x * vw) / SW, y: (p.y * vw) / SW }));
     const n = await processImage(full, quad);
-    lastCapGray = gSmall; toast(n === 2 ? "見開きを2ページとして追加しました" : `${pages.length}ページ目を追加しました`);
+    lastCapGray = gSmall; toast(`${pages.length - n + 1}〜${pages.length}ページ目を追加しました`);
   } catch (e) { toast("撮影に失敗しました。もう一度お試しください"); }
   phase = "turn"; sawChange = false; shownQuad = null;
 }
@@ -851,7 +948,7 @@ $("reviewOk").onclick = async () => {
   if (!rv) return; const { img, quad } = rv; rv = null; $("review").hidden = true;
   flash(); shutterSound();
   const n = await processImage(img, quad);
-  toast(n === 2 ? "見開きを2ページとして追加しました" : `${pages.length}ページ目を追加しました`);
+  toast(`${pages.length - n + 1}〜${pages.length}ページ目を追加しました`);
 };
 
 // シャッター: ライブなら今すぐ撮影、そうでなければスマホのカメラを開く
