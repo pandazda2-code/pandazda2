@@ -89,6 +89,7 @@ header.bar { border-bottom: 1px solid var(--line); background: var(--surface); }
   display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: #c9d3ce;
   background: rgba(10, 13, 12, 0.6); padding: 6px 10px; border-radius: 6px; letter-spacing: 0.06em;
 }
+.focus.diag { right: auto; left: max(14px, env(safe-area-inset-left, 0px)); }
 .focus .meter { width: 70px; height: 5px; background: rgba(255, 255, 255, 0.18); border-radius: 3px; overflow: hidden; }
 .focus .meter i { display: block; height: 100%; width: 0%; background: #5fd3ac; transition: width 0.12s; }
 
@@ -190,9 +191,10 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
   <div id="flash"></div>
   <div class="status" id="status" data-phase="search" hidden><span class="dot"></span><span id="statusText">ページを探しています</span></div>
   <div class="focus" id="focus" hidden>FOCUS <span class="meter"><i id="focusBar"></i></span></div>
+  <div class="focus diag" id="diag" hidden></div>
   <div id="fallback">
     <h2 id="fbTitle">カメラを準備しています…</h2>
-    <p id="fbText">本を暗めの机や布の上に置いて、ページ全体が画面に入るように構えてください。</p>
+    <p id="fbText">本を手に持ったまま、ページが画面の中央に大きく入るように構えてください。</p>
     <div class="row" id="fbButtons" hidden>
       <button class="btn primary" id="snapBtn">カメラで見開きを撮る</button>
       <button class="btn" id="pickBtn">写真を選ぶ（複数可）</button>
@@ -225,8 +227,8 @@ input[type="text"] { font: inherit; padding: 9px 10px; border: 1px solid var(--l
       <div class="seg"><label><input type="radio" name="finish" value="bw" checked>AI向け白黒</label><label><input type="radio" name="finish" value="gray">グレー</label><label><input type="radio" name="finish" value="color">カラー</label></div>
       <p class="hint">「AI向け白黒」は影や紙の黄ばみを取り除いて文字を濃くし、ファイルも小さくなります。図や写真が大事な本は「カラー」にしてください。</p>
     </div>
-    <label class="toggle"><input type="checkbox" id="debugChk"><span class="switch"></span><span><b>認識の様子を表示</b>（紙と判断した部分を青く表示します。うまく認識しないときの確認用）</span></label>
-    <p class="hint">うまく枠が出ないときは、白っぽい机を避けて、暗めの布や机の上に本を置いてください。撮影したページはこの端末の中だけで処理され、外部には送られません。</p>
+    <label class="toggle"><input type="checkbox" id="debugChk"><span class="switch"></span><span><b>認識の様子を表示</b>（文字と判断した部分をオレンジ、白い紙を青で表示します。うまく認識しないときの確認用）</span></label>
+    <p class="hint">本は手に持ったままで大丈夫です。文字のある部分を見つけて撮影するので、指が写ったり、ページが反ったり傾いたりしていても認識します。撮影したページはこの端末の中だけで処理され、外部には送られません。</p>
     <div class="actions"><button class="btn danger" id="clearAll">全ページを削除</button><button class="btn primary" id="closeSettings">閉じる</button></div>
   </div>
 </div>
@@ -338,128 +340,72 @@ function otsu(g) {
   }
   return t;
 }
-function polyArea(q) {
-  let a = 0;
-  for (let i = 0; i < 4; i++) { const p = q[i], r = q[(i + 1) % 4]; a += p.x * r.y - r.x * p.y; }
-  return Math.abs(a) / 2;
-}
-// 紙らしさ: 明るく、色味が少ないほど高い（木の机や色のついた布と区別する）
-function paperScore(img, w, h) {
-  const d = img.data, n = w * h, s = new Uint8Array(n), o = new Uint8Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) {
-    const r = d[j], g = d[j + 1], b = d[j + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = mx - (mx - mn) * 1.2;
-    s[i] = v < 0 ? 0 : v;
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    let sum = 0, c = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const xx = x + dx, yy = y + dy;
-      if (xx >= 0 && yy >= 0 && xx < w && yy < h) { sum += s[yy * w + xx]; c++; }
+// ---------- 本の検出（手に持って撮る前提） ----------
+// 画面を小さなマスに分け、「文字のあるマス」と「白い紙のマス」に分類する。
+// 文字のマスが画面の中央にまとまっていれば本のページとみなす。
+// 四隅や輪郭は使わないので、指・背景・ページの反り・傾きに左右されない。
+function findPages(img, g, w, h) {
+  const B = Math.max(8, Math.round(w / 30)), bw = Math.floor(w / B), bh = Math.floor(h / B), nb = bw * bh, d = img.data;
+  const dens = new Float32Array(nb), mean = new Float32Array(nb), spread = new Float32Array(nb), chroma = new Float32Array(nb);
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let e = 0, s = 0, s2 = 0, ch = 0, c = 0;
+    const y1 = Math.min(h - 1, (by + 1) * B), x1 = Math.min(w - 1, (bx + 1) * B);
+    for (let y = Math.max(1, by * B); y < y1; y++) for (let x = Math.max(1, bx * B), i = y * w + x; x < x1; x++, i++) {
+      if (Math.abs(g[i + 1] - g[i - 1]) + Math.abs(g[i + w] - g[i - w]) > 16) e++;
+      const j = i * 4, mx = Math.max(d[j], d[j + 1], d[j + 2]), mn = Math.min(d[j], d[j + 1], d[j + 2]);
+      s += g[i]; s2 += g[i] * g[i]; ch += mx - mn; c++;
     }
-    o[y * w + x] = sum / c;
+    const k = by * bw + bx, m = c ? s / c : 0;
+    dens[k] = c ? e / c : 0; mean[k] = m; spread[k] = c ? Math.sqrt(Math.max(0, s2 / c - m * m)) : 0; chroma[k] = c ? ch / c : 0;
   }
-  return o;
-}
-// 紙の領域を2段階のしきい値で取り出す。はっきり紙の部分から始めて、のどの影やページの端まで広げる
-function paperRegions(s, w, h) {
-  const n = w * h, hi = otsu(s);
-  // 下のしきい値は背景の明るさとの中間より上に置き、明るい背景が紙に混ざらないようにする
-  let bs = 0, bc = 0;
-  for (let i = 0; i < n; i++) if (s[i] <= hi) { bs += s[i]; bc++; }
-  const back = bc ? bs / bc : 0, lo = Math.max(40, hi - (hi - back) * 0.45);
-  const seen = new Uint8Array(n), stack = new Int32Array(n), list = [];
-  for (let st = 0; st < n; st++) {
-    if (seen[st] || s[st] <= hi) continue;
-    let sp = 0, size = 0, border = 0; stack[sp++] = st; seen[st] = 1;
-    let minS = 1e9, minSi = st, maxS = -1e9, maxSi = st, minD = 1e9, minDi = st, maxD = -1e9, maxDi = st;
+  const paper = [...mean].sort((a, b) => a - b)[Math.floor(nb * 0.9)];
+  const kind = new Uint8Array(nb); // 1 = 文字のあるマス, 2 = 白い紙のマス
+  for (let i = 0; i < nb; i++) {
+    // 文字: 色味のない紙の上に、細かい濃淡がある（地の明るさ＝平均＋ばらつき が紙に近い）
+    if (chroma[i] > 40) continue;
+    if (dens[i] >= 0.04 && dens[i] <= 0.6 && mean[i] + spread[i] >= paper * 0.82 && mean[i] >= paper * 0.7) kind[i] = 1;
+    else if (dens[i] < 0.04 && mean[i] >= paper * 0.8) kind[i] = 2;
+  }
+  const grid = { kind, bw, bh, B };
+  if (paper < 50) return { reason: "dark", grid };
+  // 文字のマスから、つながった紙のマスをたどってまとまりを作る
+  const seen = new Uint8Array(nb), stack = new Int32Array(nb);
+  let best = null;
+  for (let st = 0; st < nb; st++) {
+    if (seen[st] || kind[st] !== 1) continue;
+    let sp = 0; stack[sp++] = st; seen[st] = 1;
+    const c = { text: 0, x0: bw, x1: -1, y0: bh, y1: -1, sx: 0, sy: 0 };
     while (sp) {
-      const i = stack[--sp]; size++;
-      const x = i % w, y = (i / w) | 0, S = x + y, D = x - y;
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border++;
-      if (S < minS) { minS = S; minSi = i; } if (S > maxS) { maxS = S; maxSi = i; }
-      if (D < minD) { minD = D; minDi = i; } if (D > maxD) { maxD = D; maxDi = i; }
-      if (x > 0) { const j = i - 1; if (!seen[j] && s[j] > lo) { seen[j] = 1; stack[sp++] = j; } }
-      if (x < w - 1) { const j = i + 1; if (!seen[j] && s[j] > lo) { seen[j] = 1; stack[sp++] = j; } }
-      if (y > 0) { const j = i - w; if (!seen[j] && s[j] > lo) { seen[j] = 1; stack[sp++] = j; } }
-      if (y < h - 1) { const j = i + w; if (!seen[j] && s[j] > lo) { seen[j] = 1; stack[sp++] = j; } }
+      const i = stack[--sp], x = i % bw, y = (i / bw) | 0;
+      if (kind[i] === 1) {
+        c.text++; c.sx += x; c.sy += y;
+        // 範囲は、まわりにも文字のマスがあるマスだけで決める（ページの輪郭や背景の細い線に引きずられないように）
+        const nbText = (x > 0 && kind[i - 1] === 1) + (x < bw - 1 && kind[i + 1] === 1) + (y > 0 && kind[i - bw] === 1) + (y < bh - 1 && kind[i + bw] === 1);
+        if (nbText >= 2) { if (x < c.x0) c.x0 = x; if (x > c.x1) c.x1 = x; if (y < c.y0) c.y0 = y; if (y > c.y1) c.y1 = y; }
+      }
+      if (x > 0 && !seen[i - 1] && kind[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
+      if (x < bw - 1 && !seen[i + 1] && kind[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
+      if (y > 0 && !seen[i - bw] && kind[i - bw]) { seen[i - bw] = 1; stack[sp++] = i - bw; }
+      if (y < bh - 1 && !seen[i + bw] && kind[i + bw]) { seen[i + bw] = 1; stack[sp++] = i + bw; }
     }
-    if (size >= n * 0.02) list.push({ size, border, minS, minSi, maxS, maxSi, minD, minDi, maxD, maxDi });
+    const cx = (c.sx / c.text + 0.5) / bw, cy = (c.sy / c.text + 0.5) / bh;
+    if (cx > 0.2 && cx < 0.8 && cy > 0.2 && cy < 0.8 && (!best || c.text > best.text)) best = c;
   }
-  return { list: list.sort((a, b) => b.size - a.size), mask: seen };
+  if (!best || best.text < nb * 0.05 || best.x1 < 0) return { reason: "notext", grid };
+  // 文字が画面の端まで続いているときは、ページがはみ出して文字が切れている
+  if (best.x0 === 0 || best.y0 === 0 || best.x1 === bw - 1 || best.y1 === bh - 1) return { reason: "edge", grid };
+  // 文字のある範囲に1マス分の余白をつけて切り出す
+  const x0 = Math.max(0, (best.x0 - 1) * B), y0 = Math.max(0, (best.y0 - 1) * B);
+  const rect = { x: x0, y: y0, w: Math.min(w, (best.x1 + 2) * B) - x0, h: Math.min(h, (best.y1 + 2) * B) - y0 };
+  if (rect.w * rect.h < w * h * 0.1) return { reason: "small", grid };
+  return { rect, grid, text: best.text / nb };
 }
-// 複数の領域をまとめた四隅（左上・右上・右下・左下）
-function quadOf(cs, w) {
-  const pick = (key, idx, better) => cs.reduce((a, c) => (better(c[key], a[key]) ? c : a))[idx];
-  const lt = (a, b) => a < b, gt = (a, b) => a > b;
-  const P = (i) => ({ x: (i % w) + 0.5, y: ((i / w) | 0) + 0.5 });
-  return [P(pick("minS", "minSi", lt)), P(pick("maxD", "maxDi", gt)), P(pick("maxS", "maxSi", gt)), P(pick("minD", "minDi", lt))];
-}
-// 形の判定。合わなければ理由を返す
-function spreadShape(q, size, border, w, h) {
-  const n = w * h, area = polyArea(q);
-  if (area < n * 0.12) return "small";
-  if (border > (w + h) * 2 * 0.06) return "edge";
-  if (size / area < 0.65) return "shape";
-  for (let i = 0; i < 4; i++) {
-    const a = q[(i + 3) % 4], b = q[i], c = q[(i + 1) % 4];
-    const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
-    const cos = (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1);
-    const deg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
-    if (deg < 50 || deg > 130) return "shape";
-  }
-  const W = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, H = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2, r = W / H;
-  return r >= 1.0 && r <= 2.2 ? "" : "shape";
-}
-// 見開きの四隅を探す。のどの影で左右のページが分かれて見える場合は2つをまとめる
-function findSpread(img, w, h) {
-  const { list, mask } = paperRegions(paperScore(img, w, h), w, h);
-  if (!list.length) return { reason: "nopaper", mask };
-  const tries = [];
-  if (list[1] && list[1].size > list[0].size * 0.35) tries.push([list[0], list[1]]);
-  tries.push([list[0]]);
-  let reason = "";
-  for (const cs of tries) {
-    const q = quadOf(cs, w), r = spreadShape(q, cs.reduce((a, c) => a + c.size, 0), cs.reduce((a, c) => a + c.border, 0), w, h);
-    if (!r) return { q, mask };
-    if (!reason) reason = r;
-  }
-  return { reason, mask };
-}
-// ページの中身: 左右それぞれの文字らしさ（細かい濃淡の変化）と、中央ののどの影
-function pageContent(g, w, h, q) {
-  const at = (u, v) => {
-    const tx = q[0].x + (q[1].x - q[0].x) * u, ty = q[0].y + (q[1].y - q[0].y) * u;
-    const bx = q[3].x + (q[2].x - q[3].x) * u, by = q[3].y + (q[2].y - q[3].y) * u;
-    return [Math.round(tx + (bx - tx) * v), Math.round(ty + (by - ty) * v)];
-  };
-  const edges = [0, 0], cnt = [0, 0], cols = [];
-  for (let i = 0; i <= 160; i++) {
-    const u = 0.06 + (0.88 * i) / 160;
-    let colSum = 0, colN = 0;
-    for (let j = 0; j <= 100; j++) {
-      const v = 0.08 + (0.84 * j) / 100, [x, y] = at(u, v);
-      if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
-      const k = y * w + x;
-      colSum += g[k]; colN++;
-      if (u > 0.44 && u < 0.56) continue;
-      const side = u < 0.5 ? 0 : 1, grad = Math.abs(g[k + 1] - g[k - 1]) + Math.abs(g[k + w] - g[k - w]);
-      cnt[side]++; if (grad > 28) edges[side]++;
-    }
-    cols.push({ u, m: colN ? colSum / colN : 0 });
-  }
-  const band = (a, b) => cols.filter((c) => c.u >= a && c.u <= b).map((c) => c.m);
-  const center = Math.min(...band(0.42, 0.58)), sides = [...band(0.3, 0.4), ...band(0.6, 0.7)].sort((a, b) => a - b);
-  const gutter = sides.length > 0 && center < sides[sides.length >> 1] * 0.94;
-  return { left: edges[0] / (cnt[0] || 1), right: edges[1] / (cnt[1] || 1), gutter };
-}
-// 片側が白紙でもよい: どちらかのページに文字がある、または、のどの影がある
-const isBookContent = (c) => Math.max(c.left, c.right) >= 0.02 || c.gutter;
 function detectOnCanvas(c, targetW) {
   const s = Math.min(1, targetW / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
   const t = document.createElement("canvas"); t.width = w; t.height = h;
   const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
-  const q = findSpread(tc.getImageData(0, 0, w, h), w, h).q;
-  return q ? q.map((p) => ({ x: p.x / s, y: p.y / s })) : null;
+  const im = tc.getImageData(0, 0, w, h), r = findPages(im, grayOf(im), w, h).rect;
+  return r ? { x: r.x / s, y: r.y / s, w: r.w / s, h: r.h / s } : null;
 }
 function sharpness(g, w, h, box) {
   const x0 = Math.max(1, box.x0 | 0), x1 = Math.min(w - 2, box.x1 | 0), y0 = Math.max(1, box.y0 | 0), y1 = Math.min(h - 2, box.y1 | 0);
@@ -571,27 +517,46 @@ function enhance(c, mode) {
   return c;
 }
 function toBlob(c) { return new Promise((res) => c.toBlob(res, "image/jpeg", settings.finish === "color" ? 0.82 : 0.75)); }
-// のど（見開きの中央の綴じ目）は中央付近で一番暗い縦の線として探す
+// のど（見開きの綴じ目）は、中央付近で一番幅の広い「文字のない縦の帯」として探す。見つからなければ -1
 function findGutter(c) {
-  const W = c.width, H = c.height, x0 = Math.round(W * 0.4), x1 = Math.round(W * 0.6), y0 = Math.round(H * 0.15), y1 = Math.round(H * 0.85);
-  const g = grayOf(c.getContext("2d", { willReadFrequently: true }).getImageData(x0, y0, x1 - x0, y1 - y0));
-  const cw = x1 - x0, ch = y1 - y0, col = new Float64Array(cw);
-  for (let y = 0; y < ch; y += 2) for (let x = 0; x < cw; x++) col[x] += g[y * cw + x];
-  let best = Math.round(W / 2), bv = Infinity;
-  for (let x = 6; x < cw - 6; x++) {
-    let s = 0; for (let k = -6; k <= 6; k++) s += col[x + k];
-    if (s < bv) { bv = s; best = x0 + x; }
+  const s = Math.min(1, 800 / c.width), w = Math.round(c.width * s), h = Math.round(c.height * s);
+  const t = document.createElement("canvas"); t.width = w; t.height = h;
+  const tc = t.getContext("2d", { willReadFrequently: true }); tc.drawImage(c, 0, 0, w, h);
+  const g = grayOf(tc.getImageData(0, 0, w, h)), col = new Float32Array(w), lum = new Float32Array(w);
+  const ya = Math.round(h * 0.1), yb = Math.round(h * 0.9);
+  for (let y = ya; y < yb; y++) for (let x = 1, i = y * w + 1; x < w - 1; x++, i++) {
+    if (Math.abs(g[i + 1] - g[i - 1]) > 20) col[x]++;
+    lum[x] += g[i];
   }
-  return best;
+  const rows = yb - ya, xa = Math.round(w * 0.3), xb = Math.round(w * 0.7);
+  let best = null, run = null;
+  for (let x = xa; x <= xb; x++) {
+    const empty = x < xb && (col[x - 1] + col[x] + col[x + 1]) / 3 / rows < 0.01;
+    if (empty) { if (!run) run = { a: x, b: x }; run.b = x; }
+    else if (run) { if (!best || run.b - run.a > best.b - best.a) best = run; run = null; }
+  }
+  if (!best || best.b - best.a < w * 0.02) return -1;
+  let mid = best.a, dark = Infinity;
+  for (let x = best.a; x <= best.b; x++) if (lum[x] < dark) { dark = lum[x]; mid = x; }
+  return Math.round(mid / s);
 }
-async function processImage(src, quad) {
-  const q = quad || [{ x: 0, y: 0 }, { x: src.width, y: 0 }, { x: src.width, y: src.height }, { x: 0, y: src.height }];
-  const page = warp(src, q), mid = findGutter(page), parts = [];
-  for (const [x, w] of [[0, mid], [mid, page.width - mid]]) {
-    const c = document.createElement("canvas"); c.width = w; c.height = page.height;
-    c.getContext("2d").drawImage(page, x, 0, w, page.height, 0, 0, w, page.height); parts.push(c);
-  }
-  if (settings.dir === "rtl") parts.reverse();
+function cropCanvas(src, r) {
+  const sc = Math.min(1, 2400 / Math.max(r.w, r.h)), c = document.createElement("canvas");
+  c.width = Math.max(16, Math.round(r.w * sc)); c.height = Math.max(16, Math.round(r.h * sc));
+  c.getContext("2d").drawImage(src, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  return c;
+}
+// region: { rect } は切り出しだけ、{ quad } は四隅を手で合わせた場合の歪み補正
+async function processImage(src, region) {
+  const page = region && region.quad ? warp(src, region.quad) : cropCanvas(src, (region && region.rect) || { x: 0, y: 0, w: src.width, h: src.height });
+  const parts = [], mid = page.width / page.height >= 1.2 ? findGutter(page) : -1;
+  if (mid > 0) {
+    for (const [x, w] of [[0, mid], [mid, page.width - mid]]) {
+      const c = document.createElement("canvas"); c.width = w; c.height = page.height;
+      c.getContext("2d").drawImage(page, x, 0, w, page.height, 0, 0, w, page.height); parts.push(c);
+    }
+    if (settings.dir === "rtl") parts.reverse();
+  } else parts.push(page);
   for (const c of parts) {
     enhance(c, settings.finish);
     const blob = await toBlob(c);
@@ -770,14 +735,14 @@ $("pdfBtn").onclick = async () => {
 
 // ---------- ライブカメラ ----------
 const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
-const SW = 240, MW = 480;
+const MW = 480, TW = 64;
 const CAPTURE_DELAY = 500; // ピントが合ってから撮影するまでの時間（ミリ秒）
-const small = document.createElement("canvas"), sctx = small.getContext("2d", { willReadFrequently: true });
 const med = document.createElement("canvas"), mctx = med.getContext("2d", { willReadFrequently: true });
-let stream = null, phase = "search", t0 = 0, prevGray = null, prevQuad = null, shownQuad = null;
-const maskCanvas = document.createElement("canvas");
-let lastMask = null, lastReason = "", missCount = 0;
-let sharpHist = [], sawChange = true, lastCapGray = null, focusRatio = 0, wakeLock = null;
+const tiny = document.createElement("canvas"), tctx = tiny.getContext("2d", { willReadFrequently: true });
+const gridCanvas = document.createElement("canvas");
+let stream = null, phase = "search", t0 = 0, prevTiny = null, prevRect = null, shownRect = null;
+let lastGrid = null, lastReason = "", lastText = 0, missCount = 0, missRun = 0, lastMotion = 0;
+let sharpHist = [], sawChange = true, focusRatio = 0, wakeLock = null;
 
 async function startCamera() {
   $("fbTitle").textContent = "カメラを準備しています…";
@@ -794,7 +759,7 @@ async function startCamera() {
   } catch (e) {
     stream = null; video.hidden = true;
     $("fbTitle").textContent = "写真を1枚ずつ撮るモードで使えます";
-    $("fbText").textContent = "この画面ではライブカメラを使えないため、スマホのカメラで1枚ずつ撮影します。撮った写真からページの範囲を自動で見つけて、まっすぐに補正します。本は暗めの机や布の上に置くと認識しやすくなります。";
+    $("fbText").textContent = "この画面ではライブカメラを使えないため、スマホのカメラで1枚ずつ撮影します。撮った写真から文字のある範囲を自動で見つけて切り出します。";
     $("fbButtons").hidden = false; $("retryCam").hidden = false;
     $("autoWrap").hidden = true;
   }
@@ -811,87 +776,77 @@ function tick() {
   if (video.readyState >= 2 && video.videoWidth && phase !== "busy") analyze();
   setTimeout(() => requestAnimationFrame(tick), 90);
 }
+const rectMoved = (a, b) => (a && b ? Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.x + a.w - b.x - b.w), Math.abs(a.y + a.h - b.y - b.h)) / MW : 99);
 function analyze() {
-  const vw = video.videoWidth, vh = video.videoHeight, SH = Math.round((SW * vh) / vw), MH = Math.round((MW * vh) / vw);
-  if (small.width !== SW || small.height !== SH) { small.width = SW; small.height = SH; }
-  sctx.drawImage(video, 0, 0, SW, SH);
-  const simg = sctx.getImageData(0, 0, SW, SH), g = grayOf(simg);
-  const motion = meanDiff(prevGray, g); prevGray = g;
-  // ① 本かどうか: 紙の形（横長の見開き）と、中身（どちらかのページの文字、またはのどの影）で判定する
-  const det = findSpread(simg, SW, SH);
-  lastMask = det.mask;
-  let q = null, gm = null;
-  const k = MW / SW;
-  const readMed = () => {
-    if (med.width !== MW || med.height !== MH) { med.width = MW; med.height = MH; }
-    mctx.drawImage(video, 0, 0, MW, MH);
-    return grayOf(mctx.getImageData(0, 0, MW, MH));
-  };
-  lastReason = det.reason || "";
-  if (det.q) {
-    gm = readMed();
-    if (isBookContent(pageContent(gm, MW, MH, det.q.map((p) => ({ x: p.x * k, y: p.y * k }))))) q = det.q;
-    else lastReason = "content";
-  }
-  // 1フレームだけ見失っても認識を続ける（手ぶれや明るさのちらつき対策）
-  if (q) missCount = 0;
-  else if (prevQuad && missCount < 1) { missCount++; q = prevQuad; if (!gm) gm = readMed(); }
-  else missCount = 0;
-  let cornerMove = 99;
-  if (q && prevQuad) cornerMove = Math.max(...q.map((p, i) => dist(p, prevQuad[i])));
-  prevQuad = q;
-  shownQuad = q ? (shownQuad ? q.map((p, i) => ({ x: shownQuad[i].x * 0.5 + p.x * 0.5, y: shownQuad[i].y * 0.5 + p.y * 0.5 })) : q) : null;
+  const vw = video.videoWidth, vh = video.videoHeight, MH = Math.round((MW * vh) / vw), TH = Math.round((TW * vh) / vw);
+  // 動きはごく小さな画像で測る（手の細かい揺れや文字の細かさに反応せず、ページをめくる大きな動きに反応する）
+  if (tiny.width !== TW || tiny.height !== TH) { tiny.width = TW; tiny.height = TH; }
+  tctx.drawImage(video, 0, 0, TW, TH);
+  const gt = grayOf(tctx.getImageData(0, 0, TW, TH));
+  let motion = 99;
+  if (prevTiny && prevTiny.length === gt.length) { let s = 0; for (let i = 0; i < gt.length; i++) s += Math.abs(gt[i] - prevTiny[i]); motion = s / gt.length; }
+  prevTiny = gt; lastMotion = motion;
 
+  // ① 本かどうか: 画面の中央に、文字のあるページがまとまって写っているか
+  if (med.width !== MW || med.height !== MH) { med.width = MW; med.height = MH; }
+  mctx.drawImage(video, 0, 0, MW, MH);
+  const mimg = mctx.getImageData(0, 0, MW, MH), gm = grayOf(mimg);
+  const det = findPages(mimg, gm, MW, MH);
+  lastGrid = det.grid; lastReason = det.reason || ""; lastText = det.text || 0;
+  let r = det.rect || null;
+  if (r) { missCount = 0; missRun = 0; }
+  else {
+    missRun++;
+    // 1回だけ見失っても認識を続ける（手ぶれやちらつき対策）
+    if (prevRect && missCount < 1) { missCount++; r = prevRect; }
+  }
+  const move = r === prevRect ? 0 : rectMoved(r, prevRect);
+  prevRect = r;
+  shownRect = r ? (shownRect ? { x: (shownRect.x + r.x) / 2, y: (shownRect.y + r.y) / 2, w: (shownRect.w + r.w) / 2, h: (shownRect.h + r.h) / 2 } : r) : null;
+
+  // ② ピント: 文字の範囲の鮮明さが、直近の最高値に近く、落ち着いているか（ぶれた画像も鮮明さが下がるので撮らない）
   const now = performance.now();
   let sharp = 0;
-  if (q) {
-    const xs = q.map((p) => p.x * k), ys = q.map((p) => p.y * k);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    const ix = (x1 - x0) * 0.18, iy = (y1 - y0) * 0.18;
-    sharp = sharpness(gm, MW, MH, { x0: x0 + ix, x1: x1 - ix, y0: y0 + iy, y1: y1 - iy });
-    sharpHist.push({ t: now, v: sharp });
-  } else sharpHist = [];
+  if (r) { sharp = sharpness(gm, MW, MH, { x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h }); sharpHist.push({ t: now, v: sharp }); }
+  else sharpHist = [];
   sharpHist = sharpHist.filter((s) => s.t > now - 2500);
   const peak = Math.max(1, ...sharpHist.map((s) => s.v));
   const last = sharpHist.slice(-3).map((s) => s.v);
-  const settled = last.length === 3 && (Math.max(...last) - Math.min(...last)) / Math.max(...last) < 0.15;
-  focusRatio = q ? sharp / peak : 0;
-  // ピントの判定: 鮮明さが直近の最高値に近く、値が落ち着いていること
-  const focused = !!q && sharp > 6 && focusRatio > 0.8 && settled;
-  const steady = !!q && motion < 3.5 && cornerMove < SW * 0.02;
+  const settled = last.length === 3 && (Math.max(...last) - Math.min(...last)) / Math.max(...last) < 0.25;
+  focusRatio = r ? sharp / peak : 0;
+  const focused = !!r && sharp > 6 && focusRatio > 0.8 && settled;
+  const steady = !!r && motion < 6 && move < 0.08;
 
   if (phase === "turn") {
-    if (!q || motion > 8) sawChange = true;
+    // 撮影後は、ページをめくる大きな動き（または本が一度画面から外れる）を待つ
+    if (motion > 10 || missRun >= 8) sawChange = true;
     if (sawChange && steady) phase = "settle";
   }
   if (phase === "search" || phase === "settle") {
-    if (!q) phase = "search";
+    if (!r) phase = "search";
     else if (settings.auto && steady && focused) { phase = "count"; t0 = now; }
     else phase = "settle";
   } else if (phase === "count") {
-    // ② 本と認識したまま、ピントが合った状態が続いているか
-    const hold = !!q && motion < 4 && cornerMove < SW * 0.025 && sharp > 6 && focusRatio > 0.72;
-    if (!settings.auto || !hold) phase = q ? "settle" : "search";
-    else if (now - t0 >= CAPTURE_DELAY) {
-      if (lastCapGray && meanDiff(lastCapGray, g) < 4) { phase = "turn"; sawChange = false; }
-      else { capture(q, g); return; }
-    }
+    const hold = !!r && motion < 8 && move < 0.1 && sharp > 6 && focusRatio > 0.7;
+    if (!settings.auto || !hold) phase = r ? "settle" : "search";
+    else if (now - t0 >= CAPTURE_DELAY) { capture(r); return; }
   }
 
   const statusText = {
     search: {
-      nopaper: "本が見つかりません。暗めの机や布の上に置いてください",
+      dark: "暗すぎます。明るい場所で撮ってください",
+      notext: "本が見つかりません。ページを画面の中央に写してください",
       small: "本が小さいです。もう少し近づけてください",
-      edge: "本がはみ出しています。少し離してください",
-      shape: "見開き全体を真上から写してください",
-      content: "ページの中身を確認できません。明るい場所で撮ってください",
-    }[lastReason] || "本の見開きを画面に入れてください",
+      edge: "ページがはみ出しています。少し離してください",
+    }[lastReason] || "本のページを画面に入れてください",
     settle: settings.auto ? "本を認識しました・ピント合わせ中" : "手動撮影：シャッターを押してください",
     count: `ピントOK・撮影まで ${Math.max(0, (CAPTURE_DELAY - (now - t0)) / 1000).toFixed(1)} 秒`,
     turn: "撮影しました。ページをめくってください",
   }[phase];
   setStatus(phase, statusText);
   $("focusBar").style.width = `${Math.round(Math.min(1, focusRatio) * 100)}%`;
+  $("diag").hidden = !settings.debug;
+  if (settings.debug) $("diag").textContent = `文字 ${Math.round(lastText * 100)}% · 動き ${motion.toFixed(1)} · ピント ${Math.round(focusRatio * 100)}%`;
   drawOverlay();
 }
 function drawOverlay() {
@@ -899,40 +854,39 @@ function drawOverlay() {
   if (overlay.width !== Math.round(cw * dpr) || overlay.height !== Math.round(ch * dpr)) { overlay.width = Math.round(cw * dpr); overlay.height = Math.round(ch * dpr); }
   octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, cw, ch);
   if (!video.videoWidth) return;
-  const vw = video.videoWidth, vh = video.videoHeight, sc = Math.min(cw / vw, ch / vh), ox = (cw - vw * sc) / 2, oy = (ch - vh * sc) / 2, k = vw / SW;
-  if (settings.debug && lastMask && lastMask.length === small.width * small.height) {
-    // 調整用: 紙と判断した部分を青く表示する
-    const mi = new ImageData(small.width, small.height);
-    for (let i = 0; i < lastMask.length; i++) if (lastMask[i]) { mi.data[i * 4 + 2] = 255; mi.data[i * 4 + 1] = 140; mi.data[i * 4 + 3] = 90; }
-    maskCanvas.width = small.width; maskCanvas.height = small.height; maskCanvas.getContext("2d").putImageData(mi, 0, 0);
-    octx.imageSmoothingEnabled = false; octx.drawImage(maskCanvas, ox, oy, vw * sc, vh * sc);
+  const vw = video.videoWidth, vh = video.videoHeight, sc = Math.min(cw / vw, ch / vh), ox = (cw - vw * sc) / 2, oy = (ch - vh * sc) / 2, k = (vw / MW) * sc;
+  if (settings.debug && lastGrid) {
+    // 調整用: 文字と判断したマスをオレンジ、白い紙と判断したマスを青で表示する
+    const { kind, bw, bh, B } = lastGrid, img = new ImageData(bw, bh);
+    for (let i = 0; i < kind.length; i++) {
+      if (kind[i] === 1) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 150; img.data[i * 4 + 3] = 110; }
+      else if (kind[i] === 2) { img.data[i * 4 + 1] = 140; img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = 70; }
+    }
+    gridCanvas.width = bw; gridCanvas.height = bh; gridCanvas.getContext("2d").putImageData(img, 0, 0);
+    octx.imageSmoothingEnabled = false; octx.drawImage(gridCanvas, ox, oy, bw * B * k, bh * B * k);
   }
-  if (!shownQuad) return;
-  const pts = shownQuad.map((p) => ({ x: ox + p.x * k * sc, y: oy + p.y * k * sc }));
+  if (!shownRect) return;
+  const x = ox + shownRect.x * k, y = oy + shownRect.y * k, w = shownRect.w * k, h = shownRect.h * k;
   const col = phase === "count" ? "#5fd3ac" : phase === "turn" ? "rgba(255,255,255,0.75)" : "#f0b15a";
-  octx.beginPath(); pts.forEach((p, i) => (i ? octx.lineTo(p.x, p.y) : octx.moveTo(p.x, p.y))); octx.closePath();
-  octx.fillStyle = phase === "count" ? "rgba(95,211,172,0.16)" : "rgba(240,177,90,0.08)"; octx.fill();
-  octx.lineWidth = 3; octx.strokeStyle = col; octx.setLineDash(phase === "settle" ? [10, 6] : []); octx.stroke(); octx.setLineDash([]);
-  for (const p of pts) { octx.beginPath(); octx.arc(p.x, p.y, 6, 0, Math.PI * 2); octx.fillStyle = col; octx.fill(); }
+  octx.fillStyle = phase === "count" ? "rgba(95,211,172,0.14)" : "rgba(240,177,90,0.06)"; octx.fillRect(x, y, w, h);
+  octx.lineWidth = 3; octx.strokeStyle = col; octx.setLineDash(phase === "settle" ? [10, 6] : []); octx.strokeRect(x, y, w, h); octx.setLineDash([]);
   if (phase === "count") {
-    const cx = pts.reduce((a, p) => a + p.x, 0) / 4, cy = pts.reduce((a, p) => a + p.y, 0) / 4;
     const f = Math.min(1, (performance.now() - t0) / CAPTURE_DELAY);
-    octx.beginPath(); octx.arc(cx, cy, 30, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
+    octx.beginPath(); octx.arc(x + w / 2, y + h / 2, 30, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
     octx.lineWidth = 6; octx.strokeStyle = "#5fd3ac"; octx.stroke();
   }
 }
-async function capture(qSmall, gSmall) {
+async function capture(rMed) {
   phase = "busy"; flash(); shutterSound(); setStatus("turn", "保存しています…");
   try {
-    const vw = video.videoWidth, vh = video.videoHeight;
+    const vw = video.videoWidth, vh = video.videoHeight, k = vw / MW;
     const full = document.createElement("canvas"); full.width = vw; full.height = vh;
     full.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, vw, vh);
-    let quad = detectOnCanvas(full, 800);
-    if (!quad && qSmall) quad = qSmall.map((p) => ({ x: (p.x * vw) / SW, y: (p.y * vw) / SW }));
-    const n = await processImage(full, quad);
-    lastCapGray = gSmall; toast(`${pages.length - n + 1}〜${pages.length}ページ目を追加しました`);
+    const rect = detectOnCanvas(full, MW) || (rMed && { x: rMed.x * k, y: rMed.y * k, w: rMed.w * k, h: rMed.h * k });
+    const n = await processImage(full, rect ? { rect } : null);
+    toast(n === 2 ? `${pages.length - 1}〜${pages.length}ページ目を追加しました` : `${pages.length}ページ目を追加しました`);
   } catch (e) { toast("撮影に失敗しました。もう一度お試しください"); }
-  phase = "turn"; sawChange = false; shownQuad = null;
+  phase = "turn"; sawChange = false; shownRect = null;
 }
 
 // ---------- 写真から取り込む（ライブカメラが使えない場合） ----------
@@ -946,14 +900,15 @@ async function loadImage(file) {
     return c;
   } finally { URL.revokeObjectURL(url); }
 }
+const rectQuad = (r) => [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 function defaultQuad(c) { const m = 0.04; return [{ x: c.width * m, y: c.height * m }, { x: c.width * (1 - m), y: c.height * m }, { x: c.width * (1 - m), y: c.height * (1 - m) }, { x: c.width * m, y: c.height * (1 - m) }]; }
 async function handleFiles(files, review) {
   files = [...files]; if (!files.length) return;
-  if (review && files.length === 1) { const c = await loadImage(files[0]); openReview(c, detectOnCanvas(c, 800) || defaultQuad(c)); return; }
+  if (review && files.length === 1) { const c = await loadImage(files[0]); const r = detectOnCanvas(c, MW); openReview(c, r ? rectQuad(r) : defaultQuad(c)); return; }
   let added = 0;
   for (let i = 0; i < files.length; i++) {
     toast(`取り込み中 ${i + 1}/${files.length}`);
-    try { const c = await loadImage(files[i]); added += await processImage(c, detectOnCanvas(c, 800)); } catch (e) {}
+    try { const c = await loadImage(files[i]); const r = detectOnCanvas(c, MW); added += await processImage(c, r ? { rect: r } : null); } catch (e) {}
   }
   toast(`${added}ページを追加しました`);
 }
@@ -1007,15 +962,14 @@ $("reviewCancel").onclick = () => { rv = null; $("review").hidden = true; };
 $("reviewOk").onclick = async () => {
   if (!rv) return; const { img, quad } = rv; rv = null; $("review").hidden = true;
   flash(); shutterSound();
-  const n = await processImage(img, quad);
+  const n = await processImage(img, { quad });
   toast(`${pages.length - n + 1}〜${pages.length}ページ目を追加しました`);
 };
 
 // シャッター: ライブなら今すぐ撮影、そうでなければスマホのカメラを開く
 $("shutter").onclick = () => {
   if (stream && phase !== "busy") {
-    const g = prevGray;
-    capture(prevQuad, g);
+    capture(prevRect);
   } else if (!stream) $("camInput").click();
 };
 
